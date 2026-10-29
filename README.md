@@ -1,56 +1,83 @@
-# MANTHAN 2026 — Bot-Integrated Scaffold
+# Qubix — MANTHAN 2026 Autonomous Trading Bot
 
-Based on the uploaded `bot.py` and `HANDOFF.md`, not a generic trading-bot template.
+A disciplined, explainable, tax-aware trading bot for the MANTHAN 2026 simulated exchange
+(Kafka market stream + REST order gateway), with a live dashboard.
 
-- Original bot preserved at `src/legacy/bot_original.py`.
-- Current SMA settings and behavior captured in `CONTRACTS.md` and `config/strategy.yaml`.
-- Kafka topics, event names, REST routes, and order actions transcribed from the handoff.
-- Modules split into market data, news, strategy, risk, execution, portfolio, app lifecycle, and frontend.
+**Evidence, not hope.** Every design choice was tested on a full 500-day recording of the
+competition stream (10 stocks, 8,125 news headlines), replayed with the same code that trades live:
 
-This is a migration scaffold; the new modules are not fully wired into a runnable trading system. Verify and test before enabling orders.
+| Chosen strategy `sma_pro` (500 days) | Result |
+|---|---|
+| Return / after tax | **+28.8% / +25.4%** |
+| Max drawdown | **10.5%** |
+| Captures of rising quarters / falling quarters | **49% / 17%** (Q3 crash: market −13.1%, bot −2.2%) |
+| Orders rejected in replay | **0** (risk gate catches cash/cap problems first) |
 
-Run checks:
+We also report what failed (6 rejected ideas) — see [docs/STRATEGY_EVAL.md](docs/STRATEGY_EVAL.md).
+
+## Quick start
+
 ```bash
-pip install -r requirements.txt
-pytest
+py -m pip install -r requirements.txt
+py -m src.app --live --dashboard         # dashboard at http://127.0.0.1:8080/  (bot boots STOPPED: press Start)
+py -m pytest                             # 160+ unit tests, no network needed
 ```
 
-`python -m src.app` is a safe stub. Do not point it at the simulator until reviewed.
+`.env` (gitignored) needs `GATEWAY`, `BROKER`, `HACKATHON_USERNAME`, `BOT_ACCESS_TOKEN`.
+Optional: `STRATEGY` (default `sma_pro`), `START_TRADING=1`, `DASHBOARD_PORT`, `WARM_START=0`.
 
-## Update: wired runtime
-`python -m src.app --live` runs the full loop (Kafka -> SMA strategy -> risk gate -> execution -> reconciliation). Without `--live` it only prints a hint. Tokens come from `BOT_ACCESS_TOKEN` or `TEAM_JWT_TOKEN`.
-Status: unit-tested with fakes only (`pytest`); **not yet run against the live simulator or Kafka**. Do a sandbox run during the development stage before relying on it.
+## What it does (mapped to the problem statement)
 
-## Strategies
-Select with the `STRATEGY` env var (default `sma_band`, the original SMA8 +/-1.5% rule).
-- `sma_band` — baseline, unchanged.
-- `adaptive` — volatility-scaled band (ATR), volume confirmation, market-breadth filter, chaos-regime filter, friction (brokerage + DP) check, risk-based sizing, ATR trailing stop. Long-only. **Not validated on real data yet**; compare with `src.strategy.backtest.compare` before using it live.
+| Requirement | Implementation |
+|---|---|
+| Kafka `market.ticks` + `market.news`, group `group-<username>`, latest, no auto-commit | `src/app.py` `run()` / `consume_forever()` — **auto-reconnect with backoff**; state survives network drops |
+| Pre-flight heartbeat ACK of exact `seq` within 15 s | Throttled ACK (≤1 per 2 s, retries after 1 s); bypasses the request budget so it is never starved |
+| Dynamic universe `/stocks`, history warm-start | Startup: portfolio sync, universe, history warm-start (works with or without pre-flight ticks) |
+| Stage `/stage`: trade only when running | Orders only in `simulation`/`development` with status running; never in pre-flight, paused, completed |
+| Orders `BUY/SELL`, whole quantity 1..1,000,000, optional `date` | `src/execution/client.py` — the only module that talks to the gateway; sends `date` for latency scoring |
+| Rate limit 120/min, 429 penalty box | Self-limits to 100/min; 30 s penalty respected; heartbeats exempt from the local budget |
+| Confirmations / rejections / uncertain outcomes | Timeouts are **UNCERTAIN**, never assumed rejected; reconciled from the exchange portfolio before that ticker trades again |
+| Risk & portfolio | `src/risk/manager.py`: running stage, long-only, valid qty/price, tradable ticker, fresh data, synced portfolio, no duplicate/in-flight, sell ≤ holdings, per-ticker cap, cash check |
+| Brokerage ₹20, DP ₹15.34, STCG 15% / LTCG 10% (₹1L exempt), Sections 70/71 | `src/tax/engine.py` FIFO tax book; **year-end tax-loss harvesting** overlay; live tax panel |
+| Explain every trade | `src/journal.py` decision journal (JSONL + CSV): reason, news context, risk verdict, exchange answer, latency, tax term |
+| Latency 3–4 s window | Decision path is pure Python in-process (sub-millisecond in replay); latency avg/p95/max shown and logged |
 
-All strategies pass through the same risk gate. In the live run (stage `simulation`) open longs are closed on the last day (`UNWIND_DAYS`); this never triggers in the looping sandbox. On exit the bot prints a decision-latency summary.
+## Architecture
 
-### Disciplined strategies (opt-in via `STRATEGY=`)
-`ensemble` (recommended candidate), `mean_reversion`, `trend_pullback`, `laggard_reversion`; plus `breakout`, `relative_strength` and `adaptive`, which **lost money on the real history and are not recommended**. All share a discipline layer: max 4 open names, volatility-scaled size, 3-bar minimum hold, 3-bar re-entry cooldown, ATR trailing hard stop, breadth and chaos-volatility gates, friction check, and a news veto on entries (never a trade trigger). They need ~41 daily bars of history (warm-started from `/stocks/:ticker/history`, 90 calendar days); if the live run offers no pre-run history they wait ~41 days before trading. See `docs/STRATEGY_EVAL.md` for results and limits.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Recording the stream (for better backtests)
-Read-only, safe next to the bot (no consumer group, never commits offsets):
-```bash
-py -m scripts.record_stream                 # record until Ctrl+C  -> data/stream_<time>.jsonl
-py -m scripts.record_stream --seconds 600   # or for a fixed time
-py -m scripts.record_stream --export data/stream_X.jsonl history.json news.json
-py -m scripts.evaluate_strategies history.json
+```text
+Kafka ──> Bot.handle_message ──> strategy (sma_pro) ──> risk gate ──> execution client ──> REST gateway
+  │             │                     │                     │                │
+  │             ├── heartbeat ACK     └── tax-loss harvest  └── journal      └── reconcile (FILLED/REJECTED/UNCERTAIN)
+  │             └── news context (explanations only)                              │
+  └── reconnect loop                                       tax book (FIFO) <───────┘
+Dashboard (127.0.0.1): status, positions, orders, journal, tax, evidence, Start/Stop, strategy
 ```
-Recordings are gitignored (`data/`). The sandbox loops the same days, so about 83 minutes captures a full 500-day loop even if you start mid-loop. The loader merges loops (first value wins) and warns if the same date ever has a different close.
 
-## Dashboard (frontend/)
-Read-only view plus a Start/Stop switch and strategy selector. Served by the bot itself on **127.0.0.1 only** (no token or gateway access in the browser).
+## Strategies (`STRATEGY=`)
+
+| id | status | summary |
+|---|---|---|
+| `sma_pro` | **default, chosen** | SMA8 ±1.5% band, ₹75k per trade, ₹1.5L per-ticker cap, year-end tax-loss harvesting |
+| `sma_band` | baseline | the original bot's rule exactly (₹50k per trade, ₹1L cap) |
+| `ensemble`, `mean_reversion`, `trend_pullback`, `laggard_reversion` | too weak | +0–1% over 500 days |
+| `breakout`, `relative_strength`, `adaptive` | rejected | lost money or near zero; trends reverse in this data |
+
+## Tools
+
 ```bash
-py -m src.app --live --dashboard        # open http://127.0.0.1:8080/ (set DASHBOARD_PORT to change)
+py -m scripts.record_stream                                   # record the live stream (read-only, no consumer group)
+py -m scripts.build_evidence data/stream_<t>.jsonl            # rebuild docs/evidence.json (dashboard "Evidence" panel)
+py -m scripts.evaluate_strategies history.json                # quick windowed comparison
+py -m scripts.demo_dashboard data/stream_<t>.jsonl --strategy sma_pro --speed 40 --start   # offline demo / fallback
 ```
-- With `--dashboard` the bot boots **STOPPED**: it keeps heartbeats and data flowing but sends no orders until you press **Start** (or set `START_TRADING=1`). Stop never disconnects Kafka or stops heartbeats.
-- The strategy can only be changed while stopped; the new strategy is applied between messages and warm-started from history.
-- Orders are allowed in the `simulation` and `development` stages (when status is running); never in `preflight`, paused or completed.
-- Offline rehearsal / demo fallback (no network, no token, simulated exchange):
-```bash
-py -m scripts.demo_dashboard data/stream_<time>.jsonl --strategy sma_band --speed 25 --start
-```
-- `?mock=1` serves the static fixtures; they use an older field layout than the live API, so use the demo above for a faithful preview.
+
+## Documentation
+
+- [docs/JURY_DEFENSE.md](docs/JURY_DEFENSE.md) — the five evaluation pillars, our numbers, likely questions
+- [docs/STRATEGY_EVAL.md](docs/STRATEGY_EVAL.md) — full research log, including failures
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, data flow, safety design
+- [docs/demo_runbook.md](docs/demo_runbook.md) — live-run checklist and demo script
+- [docs/API_VERIFIED.md](docs/API_VERIFIED.md) — API facts, verified vs assumed
+- [CONTRACTS.md](CONTRACTS.md) — shared interfaces between team modules

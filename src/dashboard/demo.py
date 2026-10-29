@@ -60,8 +60,10 @@ class SimulatedAPI:
     # ---- replay support ----------------------------------------------
     def observe(self, ticker: str, date: str, bar: dict) -> None:
         self.last[ticker] = bar["close"]
-        if date != self.date:
-            self.date, self.days_done = date, self.days_done + 1
+        self._seen_dates = getattr(self, "_seen_dates", set())
+        self._seen_dates.add(date)                     # ticks of adjacent days can interleave
+        self.days_done = len(self._seen_dates)
+        self.date = max(self.date or date, date)
         self.bars.setdefault(ticker, []).append({"date": date, **bar})
 
 

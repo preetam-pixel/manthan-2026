@@ -2348,6 +2348,44 @@ function renderPriceChart() {
     ];
 
 
+    /* BUY / SELL execution markers from the bot's fills */
+
+    const markers = Array.isArray(data.markers) ? data.markers : [];
+
+    const markerSeries = (action, color, style) => {
+
+        const byDate = {};
+
+        markers
+            .filter(marker => marker.action === action)
+            .forEach(marker => { byDate[marker.date] = marker.price; });
+
+        return {
+            label: action,
+            data: labels.map(date => byDate[date] ?? null),
+            showLine: false,
+            pointRadius: 7,
+            pointHoverRadius: 9,
+            pointStyle: style,
+            rotation: action === "SELL" ? 180 : 0,
+            borderColor: color,
+            backgroundColor: color
+        };
+
+    };
+
+    if (markers.length) {
+
+        const css = getComputedStyle(document.documentElement);
+
+        datasets.push(
+            markerSeries("BUY", css.getPropertyValue("--green").trim() || "#34D399", "triangle"),
+            markerSeries("SELL", css.getPropertyValue("--red").trim() || "#FB7185", "triangle")
+        );
+
+    }
+
+
     renderLineChart(
         "price-chart",
         labels,

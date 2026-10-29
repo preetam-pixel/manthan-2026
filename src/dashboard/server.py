@@ -16,13 +16,17 @@ from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
 from src.strategy.registry import STRATEGIES
+from src.tax.engine import fy_of, to_date
 
 STARTING_CAPITAL = 1_000_000.0
 MAX_BODY = 2048
 
 STRATEGY_INFO = {
-    "sma_band": ("SMA8 band (default)", "Original rule: buy 1.5% above the 8-day average, sell 1.5% below.", True),
-    "ensemble": ("Ensemble (disciplined)", "Buys only when two of pullback / oversold-dip / laggard rules agree. Best on real history; not proven.", True),
+    "sma_pro": ("SMA8 band PRO (recommended)", "SMA8 +/-1.5% rule at 1.5x size (Rs 75k per trade, Rs 1.5L cap) with year-end "
+                "tax-loss harvesting. 500-day replay: +28.8%, 10.5% max drawdown, +25.4% after tax.", True),
+    "sma_band": ("SMA8 band (original)", "Original rule: buy 1.5% above the 8-day average, sell 1.5% below. "
+                 "500-day replay: +17.9%, 7.1% max drawdown.", True),
+    "ensemble": ("Ensemble (disciplined)", "Buys only when two rules agree. Failed out of sample (-0.04%).", False),
     "ensemble_scaled": ("Ensemble, scaled", "Same rules with 2x size and 8 positions.", True),
     "mean_reversion": ("Mean reversion", "Buys oversold dips in a non-falling trend; exits at the 10-day mean.", True),
     "trend_pullback": ("Trend pullback", "Buys short dips inside an uptrend.", True),
@@ -61,6 +65,49 @@ def status_view(bot, dash) -> dict:
                     "net_pnl": None if total is None else total - STARTING_CAPITAL,
                     "net_pnl_pct": None if total is None else (total / STARTING_CAPITAL - 1) * 100},
         "stats": dash.stats_view(list(bot.latencies)),
+    }
+
+
+def current_date(bot, dash) -> Optional[str]:
+    return (bot.stage_info or {}).get("current_date") or dash.latest_date()
+
+
+def positions_view(bot, dash) -> list[dict]:
+    """Positions with cost basis and holding date from the tax book (FIFO lots, fees included)."""
+    out = dash.positions_view(dict(bot.portfolio.held), bot.risk.max_pos_value)
+    for p in out:
+        avg = bot.tax.avg_cost(p["ticker"])
+        since = bot.tax.held_since(p["ticker"])
+        if avg:
+            p["avg_price"] = avg
+            p["unrealized_pnl"] = (p["last_close"] - avg) * p["quantity"] if p["last_close"] else None
+        if since:
+            p["held_since"] = since.isoformat()
+    return out
+
+
+def tax_view(bot, dash) -> dict:
+    book = bot.tax
+    today = current_date(bot, dash)
+    summary = book.summary()
+    unrealized = []
+    for ticker, qty in sorted(dict(bot.portfolio.held).items()):
+        price = dash.last_close.get(ticker)
+        if qty > 0 and price:
+            u = book.unrealized(ticker, price, today)
+            unrealized.append({"ticker": ticker, "quantity": qty, "short_term": u["st"], "long_term": u["lt"]})
+    d = to_date(today)
+    harvest = book.harvest_candidates(today, dict(dash.last_close), window_days=366) if d else []
+    return {
+        "as_of": today, "financial_year": fy_of(d) if d else None,
+        "rates": {"stcg": 0.15, "ltcg": 0.10, "ltcg_exemption": 100_000, "long_term_after_days": 365},
+        "years": summary["years"], "total_tax_estimate": summary["total_tax"],
+        "realized_gain": summary["realized_gain"], "fees_paid": summary["fees_paid"],
+        "unrealized": unrealized,
+        "harvest_candidates": [{"ticker": t, "quantity": q, "unrealized_loss": loss, "tax_saved": saved}
+                               for t, q, loss, saved in harvest],
+        "auto_harvest": bool(getattr(bot.strategy, "tax_harvest", False)),
+        "note": "Estimate from our own FIFO lots; the exchange's tax report is authoritative.",
     }
 
 
@@ -110,7 +157,19 @@ class _Handler(BaseHTTPRequestHandler):
             if route == "/status":
                 return self._json(200, status_view(bot, dash))
             if route == "/positions":
-                return self._json(200, dash.positions_view(dict(bot.portfolio.held)))
+                return self._json(200, positions_view(bot, dash))
+            if route == "/tax":
+                return self._json(200, tax_view(bot, dash))
+            if route == "/journal":
+                return self._json(200, {"stats": bot.journal.stats(), "entries": bot.journal.recent(200)})
+            if route == "/journal.csv":
+                return self._send(200, bot.journal.to_csv().encode("utf-8"), "text/csv; charset=utf-8")
+            if route == "/evidence":
+                path = self.ctx.get("evidence_path")
+                if path and os.path.isfile(path):
+                    with open(path, "rb") as fh:
+                        return self._send(200, fh.read())
+                return self._json(200, {})
             if route == "/events":
                 since = int((query.get("since") or ["0"])[0] or 0)
                 return self._json(200, dash.events_since(since))
@@ -180,12 +239,15 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class DashboardServer:
-    def __init__(self, bot, dash, static_dir: str, port: int = 8080, host: str = "127.0.0.1"):
+    def __init__(self, bot, dash, static_dir: str, port: int = 8080, host: str = "127.0.0.1",
+                 evidence_path: Optional[str] = None):
         self.httpd = ThreadingHTTPServer((host, port), _Handler)
         self.port = self.httpd.server_address[1]
         names = (f"127.0.0.1:{self.port}", f"localhost:{self.port}")
+        if evidence_path is None:
+            evidence_path = os.path.join(os.path.dirname(os.path.abspath(static_dir)), "docs", "evidence.json")
         self.httpd.ctx = {"bot": bot, "dash": dash, "static_dir": static_dir, "hosts": set(names),
-                          "origins": {f"http://{n}" for n in names}}
+                          "origins": {f"http://{n}" for n in names}, "evidence_path": evidence_path}
         self._thread: Optional[threading.Thread] = None
 
     @property

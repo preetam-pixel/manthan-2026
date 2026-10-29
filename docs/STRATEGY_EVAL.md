@@ -52,3 +52,20 @@ Top-10 teams in the test run reported total wealth Rs 11.5L - 18.2L (+15% to +88
 - Our disciplined rules deploy very little capital (ensemble: ~1-4% average utilization), so returns are small by construction and the cash-utilization pillar scores low.
 - `ensemble_scaled` (100k notional, 8 positions): +1.80%, max drawdown 0.60%, avg utilization 2.5% on the same 275 bars (vs +0.82% / 0.31% / 1.2% for `ensemble`). Utilization is still low.
 - Not done / not validated: tax-loss harvesting (needs verified tax/portfolio fields), shorting (not approved in CONTRACTS.md; no edge found on the short side), any claim of beating the leaderboard.
+
+## 500-day study (full Kafka recording, 2024-10-25 .. 2026-10-23) — current conclusions
+Data: `scripts/record_stream` captured all 500 days for 10 stocks and 8,125 headlines; loops were identical (0 conflicting bars) and the bars match `/stocks/:ticker/history` exactly on every shared date. Rebuild everything with `py -m scripts.build_evidence data/stream_<t>.jsonl` (writes `docs/evidence.json`, shown in the dashboard).
+
+| strategy | return | after tax | max DD | quarters (market +15.6 / +30.2 / -13.1 / +9.5) |
+|---|---|---|---|---|
+| **sma_pro** (chosen) | **+28.8%** | **+25.4%** | 10.5% | +7.6 / +12.0 / -2.2 / +7.5 |
+| sma_band (original) | +17.9% | +15.9% | 7.1% | +5.3 / +8.4 / -0.1 / +4.5 |
+| ensemble | +1.1% | +0.8% | 0.7% | out-of-sample (days 1-208): -0.04% |
+| buy & hold, equal weight | +44.9% | — | Q3 -13.1% | — |
+
+- **Out-of-sample check.** Days 1-208 were never used to design anything. The ensemble that looked best on days 212-490 earned -0.04% there; the SMA band earned +13.5%.
+- **Robustness.** SMA band windows 5/8/12 x bands 1%/1.5%/2.5%: all positive (+9% to +18%); 20-day windows fail. We kept the original 8/1.5% rather than the best cell.
+- **Sizing.** 1.5x (Rs 75k per trade, Rs 1.5L cap) -> +28.2% / DD 10.2%; 2x -> +31.7% / DD 12.5%. 1.5x chosen as the moderate option.
+- **Tax-loss harvesting** before 31 March: +0.6 pp; small because positions are short-lived.
+- **Rejected:** regime allocator (+0.4%, DD 10.8%, robust failure across SMA30-80), drawdown brake (locks the bot out: +2.5%), news trading/veto (no predictive power: corr -0.018, all |t| < 2), shorting (downtrends rebounded).
+- Earlier sections of this file reflect the 275-day study and are kept for the record; where they differ, this section supersedes them.

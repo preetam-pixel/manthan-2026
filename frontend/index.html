@@ -9,6 +9,7 @@
 
     <!-- CSS will be added in the next step -->
     <link rel="stylesheet" href="./style.css">
+    <link rel="stylesheet" href="./insights.css">
 
     <!-- Local chart library will be added later -->
 </head>
@@ -1138,6 +1139,161 @@
 
             </div>
 
+
+            <div class="insight-split">
+
+                <div class="chart-card">
+                    <div class="insight-card-head">
+                        <h3>Tax by financial year</h3>
+                        <span class="table-count" id="tax-fy-label">—</span>
+                    </div>
+                    <p class="insight-sub">
+                        FIFO lots, fees in cost basis. STCG 15% (&le; 365 days), LTCG 10% with
+                        the first ₹1,00,000 exempt. Losses offset gains per Sections 70 &amp; 71.
+                    </p>
+                    <div class="table-container">
+                        <table id="tax-years-table">
+                            <thead>
+                                <tr>
+                                    <th>Year</th><th>ST gains</th><th>ST losses</th><th>LT gains</th>
+                                    <th>LT exempt</th><th>Taxable</th><th>Tax est.</th>
+                                </tr>
+                            </thead>
+                            <tbody><tr><td colspan="7" class="insight-empty">No realised trades yet</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <div class="insight-card-head">
+                        <h3>Tax-loss harvesting</h3>
+                        <span class="status-badge" id="harvest-mode">—</span>
+                    </div>
+                    <p class="insight-sub">
+                        In the last days before 31 March the bot sells losing positions when the
+                        tax saved beats the ₹55.34 round-trip cost.
+                    </p>
+                    <ul class="insight-list" id="harvest-list">
+                        <li class="insight-empty">No candidates right now</li>
+                    </ul>
+                    <p class="insight-note" id="tax-note"></p>
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             DECISION JOURNAL (EXPLAINABILITY)
+        ====================================== -->
+
+        <section class="journal-section">
+
+            <div class="section-heading">
+                <div>
+                    <span class="section-label">EXPLAINABILITY</span>
+                    <h2>Decision Journal</h2>
+                </div>
+                <div class="insight-actions">
+                    <span class="table-count" id="journal-stats">0 decisions</span>
+                    <a class="insight-button" id="journal-download" href="/journal.csv" download="decision_journal.csv">
+                        Download CSV
+                    </a>
+                </div>
+            </div>
+
+            <p class="insight-sub">
+                Every decision the bot made, why, what the risk gate said, what the exchange
+                answered, and the tax consequence. Also written to <code>logs/decisions_*.jsonl</code>.
+            </p>
+
+            <div class="table-container">
+                <table id="journal-table">
+                    <thead>
+                        <tr>
+                            <th>Sim date</th><th>Ticker</th><th>Action</th><th>Qty</th><th>Price</th>
+                            <th>Why</th><th>News ctx</th><th>Risk gate</th><th>Exchange</th>
+                            <th>Realised</th><th>Latency</th>
+                        </tr>
+                    </thead>
+                    <tbody><tr><td colspan="11" class="insight-empty">No decisions yet</td></tr></tbody>
+                </table>
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             STRATEGY EVIDENCE (RESEARCH)
+        ====================================== -->
+
+        <section class="evidence-section">
+
+            <div class="section-heading">
+                <div>
+                    <span class="section-label">RESEARCH</span>
+                    <h2>Strategy Evidence</h2>
+                </div>
+                <span class="table-count" id="evidence-dataset">—</span>
+            </div>
+
+            <p class="insight-sub" id="evidence-why">
+                Replayed offline with the same code the bot runs: fills at close, brokerage, DP charge and an
+                Indian capital-gains tax estimate.
+            </p>
+
+            <div class="insight-kpis" id="evidence-kpis"></div>
+
+            <div class="insight-split">
+                <div class="chart-card">
+                    <div class="insight-card-head"><h3>Equity: strategy vs buy &amp; hold</h3></div>
+                    <div class="chart-container insight-chart" id="evidence-equity-chart"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="insight-card-head"><h3>Quarter by quarter</h3></div>
+                    <div class="chart-container insight-chart" id="evidence-quarters-chart"></div>
+                </div>
+            </div>
+
+            <div class="chart-card insight-block">
+                <div class="insight-card-head"><h3>Every strategy we tested</h3></div>
+                <div class="table-container">
+                    <table id="evidence-strategies">
+                        <thead>
+                            <tr>
+                                <th>Strategy</th><th>Return</th><th>After tax</th><th>Max DD</th>
+                                <th>Upside capture</th><th>Downside capture</th><th>Trades</th><th>Fees</th><th>Verdict</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="insight-split">
+                <div class="chart-card">
+                    <div class="insight-card-head"><h3>Robustness: SMA window &times; band</h3></div>
+                    <p class="insight-sub">500-day return (max drawdown). A real edge survives its neighbours.</p>
+                    <div class="table-container"><table id="evidence-grid"></table></div>
+                </div>
+                <div class="chart-card">
+                    <div class="insight-card-head"><h3>Does news predict prices?</h3></div>
+                    <p class="insight-sub" id="evidence-news-sub"></p>
+                    <div class="table-container">
+                        <table id="evidence-news">
+                            <thead><tr><th>Sentiment</th><th>Headlines</th><th>Next-day return</th><th>t-stat</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-card insight-block">
+                <div class="insight-card-head"><h3>What we rejected, and why</h3></div>
+                <ul class="insight-list" id="evidence-rejected"></ul>
+            </div>
+
         </section>
 
 
@@ -1232,5 +1388,6 @@
 
     <script src="./vendor/chart.umd.js"></script>
 <script src="./app.js" defer></script>
+<script src="./insights.js" defer></script>
 </body>
 </html>

@@ -37,6 +37,7 @@ class DashboardState:
         self._equity: dict[str, dict] = {}
         self._news: deque = deque(maxlen=100)
         self._lots: dict[str, dict] = {}          # ticker -> {qty, avg, since}
+        self._markers: dict[str, deque] = {}      # ticker -> recent BUY/SELL fills for the price chart
         self.last_close: dict[str, float] = {}
 
     # ---- writers (bot thread) -----------------------------------------
@@ -94,6 +95,8 @@ class DashboardState:
     def record_fill(self, ticker: str, action: str, quantity: int, price: float,
                     date: Optional[str]) -> None:
         with self._lock:
+            self._markers.setdefault(ticker, deque(maxlen=200)).append(
+                {"date": date, "action": action, "quantity": quantity, "price": price})
             lot = self._lots.get(ticker, {"qty": 0, "avg": 0.0, "since": None})
             if action == "BUY":
                 total = lot["qty"] + quantity
@@ -132,7 +135,14 @@ class DashboardState:
 
     def series_view(self) -> dict:
         with self._lock:
-            return {t: {"ticker": t, "points": [dict(p) for p in pts]} for t, pts in self._series.items()}
+            return {t: {"ticker": t, "points": [dict(p) for p in pts],
+                        "markers": [dict(m) for m in self._markers.get(t, ())]}
+                    for t, pts in self._series.items()}
+
+    def latest_date(self) -> Optional[str]:
+        with self._lock:
+            dates = [pts[-1]["date"] for pts in self._series.values() if pts and pts[-1]["date"]]
+            return max(dates) if dates else None
 
     def equity_view(self) -> list[dict]:
         with self._lock:

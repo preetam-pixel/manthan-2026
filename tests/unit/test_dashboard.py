@@ -112,7 +112,7 @@ def test_start_enables_orders_and_records_fill_and_position(rig):
     bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
     assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
     pos = call(server, "GET", "/positions")[1]
-    assert pos[0]["ticker"] == "AAA" and pos[0]["avg_price"] == 103.0 and pos[0]["quantity"] > 0
+    assert pos[0]["ticker"] == "AAA" and pos[0]["avg_price"] == pytest.approx(103.0 + 20.0 / pos[0]["quantity"]) and pos[0]["quantity"] > 0
     orders = call(server, "GET", "/orders")[1]
     assert orders[0]["status"] == "FILLED" and orders[0]["fees"] == 20.0
     stats = call(server, "GET", "/status")[1]["stats"]
@@ -215,3 +215,39 @@ def test_news_flood_cannot_evict_trading_events(rig):
     ids = [e["id"] for e in events]
     assert ids == sorted(ids, reverse=True)                                # merged, newest first
     assert sum(e["type"] == "NEWS" for e in events) <= 150
+
+
+def test_tax_journal_csv_and_markers_endpoints(rig):
+    bot, dash, api, server = rig
+    call(server, "POST", "/control/start", {}, JSON)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))           # BUY
+    bot.handle_message("market.ticks", tick("AAA", 90.0, "2021-02-02"))            # SELL at a loss
+    tax = call(server, "GET", "/tax")[1]
+    assert tax["rates"]["stcg"] == 0.15 and tax["years"] and tax["years"][0]["fy"] == "FY2020-21"
+    assert tax["realized_gain"] < 0 and tax["total_tax_estimate"] == 0 and tax["fees_paid"] > 0
+    j = call(server, "GET", "/journal")[1]
+    assert j["stats"]["filled"] == 2 and j["entries"][0]["action"] == "SELL"
+    assert j["entries"][0]["tax_term"] == "ST" and j["entries"][1]["reason"]
+    code, csv = call(server, "GET", "/journal.csv")
+    assert code == 200 and csv.decode().startswith("time,simulated_date,ticker")
+    markers = call(server, "GET", "/series")[1]["AAA"]["markers"]
+    assert [m["action"] for m in markers] == ["BUY", "SELL"]
+
+
+def test_evidence_endpoint_serves_file_or_empty(rig, tmp_path):
+    bot, dash, api, server = rig
+    path = tmp_path / "evidence.json"
+    server.httpd.ctx["evidence_path"] = str(path)
+    assert call(server, "GET", "/evidence")[1] == {}
+    path.write_text('{"headline": "ok"}', encoding="utf-8")
+    assert call(server, "GET", "/evidence")[1] == {"headline": "ok"}
+
+
+def test_demo_exchange_counts_days_once_even_when_ticks_interleave():
+    from src.dashboard.demo import SimulatedAPI
+    api = SimulatedAPI(["A", "B"], total_days=2)
+    for t, d in (("A", "2024-01-01"), ("B", "2024-01-02"), ("A", "2024-01-02"), ("B", "2024-01-01")):
+        api.observe(t, d, {"close": 10.0})
+    assert api.days_done == 2 and api.get_stage()["current_date"] == "2024-01-02"
+    assert api.submit_order("A", "BUY", 5).outcome == "FILLED" and api.holdings["A"] == 5
+    assert api.submit_order("A", "SELL", 9).code == "NO_POSITION"

@@ -1,10 +1,11 @@
-"""Named strategies. SMA8 band is the default; others are opt-in."""
+"""Named strategies. `sma_pro` (SMA8 band, 1.5x size, tax-loss harvesting) is the default."""
 from src.strategy import disciplined
 from src.strategy.adaptive import AdaptiveStrategy
-from src.strategy.sma import SMAStrategy
+from src.strategy.sma import SMAStrategy, sma_pro
 
-DEFAULT = "sma_band"
+DEFAULT = "sma_pro"     # chosen from the 500-day study; see docs/STRATEGY_EVAL.md
 STRATEGIES = {
+    "sma_pro": sma_pro,
     "sma_band": SMAStrategy,
     "adaptive": AdaptiveStrategy,
     "trend_pullback": disciplined.trend_pullback,
