@@ -1,0 +1,13 @@
+# Testing checklist
+- [ ] No signal until eight prior closes are buffered.
+- [ ] SMA uses prior buffer, then current close is appended.
+- [ ] Buy if close > SMA * 1.015.
+- [ ] Size: max(1, int(50000 // close)); cap ticker position at ₹100,000.
+- [ ] Sell whole long position if close < SMA * 0.985.
+- [ ] Non-tradable ticker blocks order.
+- [ ] Portfolio startup sync; short holdings currently map to zero.
+- [ ] Heartbeat posts preflight seq and handles errors.
+- [ ] News scoring does not trade.
+- [ ] Missing close does not alter SMA history.
+- [ ] API timeout is not assumed to mean rejection; reconcile before retry.
+- [ ] Paused/non-live simulator receives no orders.
