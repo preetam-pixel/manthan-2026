@@ -81,7 +81,8 @@
         const ltTax = years.reduce((s, y) => s + 0.10 * (num(y.taxable_lt) ?? 0), 0);
         const lossesUsed = years.reduce((s, y) => s + (num(y.stcl) ?? 0) + (num(y.ltcl) ?? 0), 0);
 
-        setText("cost-fees-paid", inr(tax.fees_paid, 2));
+        // Exchange total (as on the portal); our own tax book only covers this bot session.
+        setText("cost-fees-paid", inr(num(tax.exchange_charges) ?? tax.fees_paid, 2));
         setText("cost-stcg", years.length ? inr(stTax) : "₹0");
         setText("cost-ltcg", years.length ? inr(ltTax) : "₹0");
         setText("cost-tax-loss-credits", years.length ? `${inr(lossesUsed)} offset` : "₹0");

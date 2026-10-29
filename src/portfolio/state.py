@@ -4,6 +4,7 @@ Long-only: short holdings map to zero, as in the original bot. The portfolio
 endpoint's full schema is not independently verified; fields are read
 defensively and unknown cash stays None (callers must not treat it as zero).
 """
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -19,6 +20,8 @@ class PortfolioState:
         self.avg_price: dict[str, float] = {}       # exchange cost basis (avg_buy_price), when provided
         self.cash: Optional[float] = None
         self.synced = False
+        self.exchange: dict = {}                    # last raw /portfolio answer (what the portal shows)
+        self.synced_at: Optional[str] = None        # wall-clock time of that answer (UTC ISO)
         self.uncertain: set[str] = set()      # tickers with an unresolved order
         self.submitted: set[tuple] = set()    # (ticker, action, simulated_date)
 
@@ -44,11 +47,21 @@ class PortfolioState:
             if cash is not None:
                 self.cash = cash
                 break
+        self.exchange = dict(portfolio)
+        self.synced_at = datetime.now(timezone.utc).isoformat()
         self.synced = True
 
+    def exchange_holding(self, ticker: str) -> dict:
+        for h in self.exchange.get("holdings") or []:
+            if h.get("ticker") == ticker and not h.get("is_short"):
+                return h
+        return {}
+
     def apply_fill(self, ticker: str, action: str, quantity: int,
-                   price: Optional[float] = None, brokerage: float = 20.0) -> None:
-        """Update after an accepted order; cash only when the price is known."""
+                   price: Optional[float] = None, brokerage: float = 20.0,
+                   dp_charge: float = 15.34) -> None:
+        """Update after an accepted order; cash only when the price is known.
+        Sells also pay the DP charge, as the exchange deducts it."""
         if action == "BUY":
             self.held[ticker] = self.quantity(ticker) + quantity
             if self.cash is not None and price:
@@ -56,7 +69,7 @@ class PortfolioState:
         elif action == "SELL":
             self.held[ticker] = max(self.quantity(ticker) - quantity, 0)
             if self.cash is not None and price:
-                self.cash += quantity * price - brokerage
+                self.cash += quantity * price - brokerage - dp_charge
 
     # ---- uncertain-order handling ----------------------------------
     def mark_uncertain(self, ticker: str) -> None:

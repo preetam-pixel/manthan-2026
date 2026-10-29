@@ -33,7 +33,9 @@ HEARTBEAT_RETRY_INTERVAL_S = 1.0  # minimum wait before retrying a failed ACK
 HEARTBEAT_MIN_INTERVAL_S = 2.0  # one ACK per 15 s is required; bursts of preflight ticks must not flood the API
 HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading closes
 TRADING_STAGES = ("simulation", "development")   # stages in which orders may be sent
-RESYNC_S = 60.0               # re-read the exchange portfolio this often (exchange is the source of truth)
+RESYNC_S = 15.0               # re-read the exchange portfolio this often (exchange is the source of truth;
+                              # also keeps the dashboard within 15 s of the portal; 4 requests/min)
+FILL_RESYNC_S = 2.0           # ... and this long after a fill (at most one extra request per simulated day)
 UNWIND_DAYS = 1              # in the live run, close longs when this many days remain
 
 
@@ -92,6 +94,7 @@ class Bot:
         self.journal = journal or DecisionJournal()
         self.news_context = NewsFilter()          # recent headline risk per ticker, for explanations
         self._last_sync_at: Optional[float] = None
+        self._filled_at: Optional[float] = None
         self._sync_risk_cap()
 
     def _sync_risk_cap(self) -> None:
@@ -223,14 +226,24 @@ class Bot:
         self._stage_at = now
         return self.sim_running
 
+    def _resync_due(self) -> bool:
+        """Every RESYNC_S, and FILL_RESYNC_S after a fill (once the day's burst of orders is done),
+        so the exchange's own figures, shown on the dashboard as on the portal, are seconds old."""
+        if self._last_sync_at is None or self.portfolio.uncertain:
+            return False
+        now = self.clock()
+        if now - self._last_sync_at >= RESYNC_S:
+            return True
+        return (self._filled_at is not None and self._filled_at >= self._last_sync_at
+                and now - self._filled_at >= FILL_RESYNC_S)
+
     # ---- events -----------------------------------------------------
     def handle_message(self, topic: str, event: dict, received_at: Optional[float] = None) -> None:
         if not isinstance(event, dict):
             return
         received_at = self.clock() if received_at is None else received_at
-        if (self._last_sync_at is not None and not self.portfolio.uncertain
-                and self.clock() - self._last_sync_at >= RESYNC_S):
-            self.sync_portfolio()                    # periodic exchange-truth reconciliation
+        if self._resync_due():
+            self.sync_portfolio()                    # exchange-truth reconciliation
         if self._pending_strategy:
             try:
                 self._apply_pending_strategy()
@@ -434,6 +447,7 @@ class Bot:
                                  tax_term="/".join(sorted({r.term for r in realised})))
             if entry is not None:
                 entry["fill_price"] = fill
+            self._filled_at = self.clock()           # re-read the exchange shortly (see handle_message)
             self._d("record_fill", signal.ticker, signal.action, signal.quantity, fill,
                     key[2])
         elif result.outcome == "UNCERTAIN":

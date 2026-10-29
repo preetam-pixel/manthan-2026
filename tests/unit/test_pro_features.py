@@ -148,15 +148,35 @@ def test_original_strategy_never_harvests():
 
 # ---- exchange-truth resync and Kafka resilience -------------------------------------
 def test_portfolio_resynced_from_exchange_periodically():
+    from src.app import RESYNC_S
     now = [0.0]
     bot, api = bot_with(SMAStrategy(), clock=lambda: now[0])
     calls = api.portfolio_calls
-    now[0] = 30.0
+    now[0] = RESYNC_S / 2
     bot.handle_message("market.ticks", tick("AAA", 100.0, "2026-01-11"))
     assert api.portfolio_calls == calls
-    now[0] = 61.0
+    now[0] = RESYNC_S + 1
     bot.handle_message("market.ticks", tick("AAA", 100.0, "2026-01-12"))
     assert api.portfolio_calls == calls + 1
+    assert RESYNC_S <= 15                     # dashboard stays within 15 s of the portal
+
+
+def test_portfolio_reread_shortly_after_a_fill():
+    from src.app import FILL_RESYNC_S, RESYNC_S
+    now = [0.0]
+    bot, api = bot_with(SMAStrategy(), clock=lambda: now[0])
+    now[0] = 1.0
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2026-01-11"))      # BUY fills
+    calls = api.portfolio_calls
+    now[0] = 1.0 + FILL_RESYNC_S / 2
+    bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
+    assert api.portfolio_calls == calls                                        # rest of the burst first
+    now[0] = 1.0 + FILL_RESYNC_S
+    bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
+    assert api.portfolio_calls == calls + 1
+    now[0] = 1.0 + FILL_RESYNC_S + 1
+    bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
+    assert api.portfolio_calls == calls + 1 and FILL_RESYNC_S < RESYNC_S      # once per fill burst
 
 
 class Msg:

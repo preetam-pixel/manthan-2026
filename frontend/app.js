@@ -782,21 +782,48 @@ function renderKPIs() {
     );
 
 
+    /* Account figures are the exchange's own (as on the portal), re-read every few seconds */
+
+    const asOf = account.as_of ? formatTime(account.as_of) : null;
+
+    setText(
+        "account-source",
+        account.source === "exchange"
+            ? `EXCHANGE · AS OF ${asOf || "—"}`
+            : account.source === "bot"
+                ? "BOT ESTIMATE"
+                : "SIMULATED"
+    );
+
+
+    /* Orders: the exchange counts the whole account; the session count restarts with the bot */
+
+    const accountOrders = safeNumber(stats.account_orders);
+
+    const accountRejected = safeNumber(stats.account_rejected);
+
     setText(
         "kpi-orders-sent",
-        stats.orders_sent
+        accountOrders ?? stats.orders_sent
+    );
+
+    setText(
+        "kpi-orders-sent-change",
+        accountOrders === null
+            ? "Since run start"
+            : `Account total · this session: ${stats.orders_sent ?? 0}`
     );
 
 
     setText(
         "kpi-orders-rejected",
-        stats.orders_rejected
+        accountRejected ?? stats.orders_rejected
     );
 
 
-    const sent = safeNumber(stats.orders_sent);
+    const sent = accountOrders ?? safeNumber(stats.orders_sent);
 
-    const rejected = safeNumber(stats.orders_rejected);
+    const rejected = accountRejected ?? safeNumber(stats.orders_rejected);
 
 
     let rejectionRate = null;
@@ -804,11 +831,12 @@ function renderKPIs() {
     if (
         sent !== null &&
         rejected !== null &&
-        sent + rejected > 0
+        sent > 0
     ) {
 
+        /* orders sent already include the rejected ones */
         rejectionRate =
-            (rejected / (sent + rejected)) * 100;
+            (rejected / sent) * 100;
 
     }
 

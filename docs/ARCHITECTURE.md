@@ -17,7 +17,7 @@ Kafka market.news ───┴─► │ handle_message ─┬─ preflight_tick
                          │                 │                        ▼                         │
                          │                 │      PortfolioState + TaxBook (FIFO) + Journal   │
                          │                 └─ news_flash ─► news context (explanations only)  │
-                         │  every 60 s: portfolio resync from the exchange (source of truth)  │
+                         │  every 15 s + 2 s after fills: portfolio resync (source of truth)  │
                          └────────────────────────────────────────────────────────────────────┘
                                          │ read-only views (thread-safe)
                                          ▼
@@ -45,7 +45,7 @@ Kafka market.news ───┴─► │ handle_message ─┬─ preflight_tick
 
 - **One door to the exchange.** Only `execution/client.py` sends orders; only after `RiskManager.evaluate` approves.
 - **Unknown is not "no".** A timeout or unreadable reply is `UNCERTAIN`; the ticker is frozen until the exchange portfolio is re-read.
-- **Exchange is the source of truth.** Portfolio re-synced at startup, every 60 s, after uncertain outcomes and after cash/margin rejections.
+- **Exchange is the source of truth.** Portfolio re-synced at startup, every 15 s, 2 s after a fill, after uncertain outcomes and after cash/margin rejections. The dashboard shows the exchange's own wealth, P&L, cash, charges, order count and position prices (the same figures as the portal), with their time.
 - **Stop is not disconnect.** The dashboard Stop switch pauses new orders only; Kafka and heartbeats continue (pre-flight readiness is never lost).
 - **The dashboard cannot break trading.** All dashboard hooks are wrapped; tested with a dashboard that throws on every call.
 - **Local only.** The dashboard binds to 127.0.0.1, refuses foreign `Host` headers (DNS rebinding) and cross-origin POSTs, never sees the token.

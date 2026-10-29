@@ -50,22 +50,63 @@ def bot_view(bot, dash) -> dict:
     }
 
 
+def _num(value) -> Optional[float]:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def account_view(bot, dash) -> dict:
+    """Account figures as the exchange portal shows them.
+
+    The exchange's own numbers from the last /portfolio answer, unchanged, with its time: the bot
+    re-reads it every RESYNC_S and FILL_RESYNC_S after a fill, so they are seconds old. Only if
+    the exchange gives no totals are they computed from our cash and holdings, priced at the
+    latest close (falling back to the exchange's price, never to zero).
+    """
+    pf = bot.portfolio
+    ex = pf.exchange or {}
+    initial = _num(ex.get("initial_capital")) or STARTING_CAPITAL
+    common = {"initial_capital": initial, "realized_pnl": _num(ex.get("realized_pnl")),
+              "charges": _num(ex.get("total_charges")), "taxes": _num(ex.get("total_taxes")),
+              "as_of": pf.synced_at}
+    if _num(ex.get("total_wealth")) is not None:
+        total = _num(ex["total_wealth"])
+        pnl = _num(ex.get("total_pnl"))
+        pnl = total - initial if pnl is None else pnl
+        return {**common, "source": "exchange", "total_wealth": total,
+                "cash": _num(ex.get("available_cash")) if _num(ex.get("available_cash")) is not None else pf.cash,
+                "invested": _num(ex.get("portfolio_market_value")),
+                "unrealized_pnl": _num(ex.get("unrealized_pnl")),
+                "net_pnl": pnl, "net_pnl_pct": pnl / initial * 100}
+    invested = 0.0
+    for ticker, qty in dict(pf.held).items():
+        if qty > 0:
+            price = (dash.last_close.get(ticker) or _num(pf.exchange_holding(ticker).get("current_price"))
+                     or pf.avg_price.get(ticker))
+            invested += qty * (price or 0.0)
+    cash = pf.cash
+    total = None if cash is None else cash + invested
+    return {**common, "source": "bot", "cash": cash, "invested": invested, "total_wealth": total,
+            "unrealized_pnl": None,
+            "net_pnl": None if total is None else total - initial,
+            "net_pnl_pct": None if total is None else (total / initial - 1) * 100}
+
+
 def status_view(bot, dash) -> dict:
     info = dict(bot.stage_info or {})
     stage = str(info.get("stage") or "").lower()
-    invested = sum(q * dash.last_close.get(t, 0.0) for t, q in dict(bot.portfolio.held).items() if q > 0)
-    cash = bot.portfolio.cash
-    total = None if cash is None else cash + invested
+    stats = dash.stats_view(list(bot.latencies))
+    ex = bot.portfolio.exchange or {}
+    # Session counts restart with every bot run; the exchange counts the whole account (as the portal).
+    stats["account_orders"] = _num(ex.get("total_orders"))
+    stats["account_rejected"] = _num(ex.get("rejected_orders_count"))
     return {
         "bot": bot_view(bot, dash),
         "sim": {"stage": info.get("stage"), "status": info.get("status"),
                 "current_date": info.get("current_date"), "days_completed": info.get("days_completed"),
                 "total_days": info.get("total_days"), "interval_seconds": info.get("interval_seconds"),
                 "is_sandbox": bool(info.get("is_sandbox_stream")) or stage == "development"},
-        "account": {"cash": cash, "invested": invested, "total_wealth": total,
-                    "net_pnl": None if total is None else total - STARTING_CAPITAL,
-                    "net_pnl_pct": None if total is None else (total / STARTING_CAPITAL - 1) * 100},
-        "stats": dash.stats_view(list(bot.latencies)),
+        "account": account_view(bot, dash),
+        "stats": stats,
     }
 
 
@@ -74,14 +115,28 @@ def current_date(bot, dash) -> Optional[str]:
 
 
 def positions_view(bot, dash) -> list[dict]:
-    """Positions with cost basis and holding date from the tax book (FIFO lots, fees included)."""
-    out = dash.positions_view(dict(bot.portfolio.held), bot.risk.max_pos_value)
+    """Positions. When the exchange's last answer holds the same quantity, its own avg buy price,
+    price, value and unrealized P&L are shown (as on the portal); otherwise our tax book's cost
+    basis (FIFO lots, fees included). Holding date always comes from the tax book."""
+    pf = bot.portfolio
+    out = dash.positions_view(dict(pf.held), bot.risk.max_pos_value)
     for p in out:
-        avg = bot.tax.avg_cost(p["ticker"])
-        since = bot.tax.held_since(p["ticker"])
-        if avg:
-            p["avg_price"] = avg
-            p["unrealized_pnl"] = (p["last_close"] - avg) * p["quantity"] if p["last_close"] else None
+        ticker = p["ticker"]
+        ex = pf.exchange_holding(ticker)
+        since = bot.tax.held_since(ticker)
+        if ex and ex.get("quantity") == p["quantity"] and _num(ex.get("avg_buy_price")) is not None:
+            price = _num(ex.get("current_price")) or p["last_close"]
+            value = _num(ex.get("market_value")) or (price * p["quantity"] if price else None)
+            p.update({"avg_price": _num(ex["avg_buy_price"]), "last_close": price, "value": value,
+                      "unrealized_pnl": _num(ex.get("unrealized_pnl")),
+                      "cap_used_pct": value / bot.risk.max_pos_value * 100 if value else None,
+                      "source": "exchange"})
+        else:
+            avg = bot.tax.avg_cost(ticker)
+            if avg:
+                p["avg_price"] = avg
+                p["unrealized_pnl"] = (p["last_close"] - avg) * p["quantity"] if p["last_close"] else None
+            p["source"] = "bot"
         if since:
             p["held_since"] = since.isoformat()
     return out
@@ -104,6 +159,8 @@ def tax_view(bot, dash) -> dict:
         "rates": {"stcg": 0.15, "ltcg": 0.10, "ltcg_exemption": 100_000, "long_term_after_days": 365},
         "years": summary["years"], "total_tax_estimate": summary["total_tax"],
         "realized_gain": summary["realized_gain"], "fees_paid": summary["fees_paid"],
+        "exchange_charges": _num((bot.portfolio.exchange or {}).get("total_charges")),
+        "exchange_taxes": _num((bot.portfolio.exchange or {}).get("total_taxes")),
         "unrealized": unrealized,
         "harvest_candidates": [{"ticker": t, "quantity": q, "unrealized_loss": loss, "tax_saved": saved}
                                for t, q, loss, saved in harvest],

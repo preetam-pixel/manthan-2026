@@ -253,6 +253,70 @@ def test_demo_exchange_counts_days_once_even_when_ticks_interleave():
     assert api.submit_order("A", "SELL", 9).code == "NO_POSITION"
 
 
+# ---- dashboard matches the exchange portal ------------------------------------------------
+EXCHANGE = {"initial_capital": 1_000_000, "available_cash": 88_194.98, "cash_balance": 88_194.98,
+            "portfolio_market_value": 920_716.66, "total_wealth": 1_008_911.64, "realized_pnl": -6_704.42,
+            "unrealized_pnl": 22_657.27, "total_pnl": 15_952.85, "total_pnl_pct": 1.6, "total_charges": 7_016.72,
+            "total_taxes": 0, "total_orders": 268, "rejected_orders_count": 0,
+            "holdings": [{"ticker": "AAA", "quantity": 1212, "avg_buy_price": 61.87, "current_price": 67.74,
+                          "market_value": 82_100.88, "unrealized_pnl": 7_114.44, "is_short": False}]}
+
+
+def test_account_and_positions_show_the_exchange_figures_like_the_portal(rig):
+    bot, dash, api, server = rig
+    api.portfolio = EXCHANGE
+    bot.sync_portfolio()
+    st = call(server, "GET", "/status")[1]
+    acc = st["account"]
+    assert acc["source"] == "exchange" and acc["as_of"]
+    assert acc["total_wealth"] == 1_008_911.64 and acc["net_pnl"] == 15_952.85
+    assert acc["cash"] == 88_194.98 and acc["invested"] == 920_716.66 and acc["charges"] == 7_016.72
+    assert st["stats"]["account_orders"] == 268 and st["stats"]["orders_sent"] == 0   # account vs session
+    pos = call(server, "GET", "/positions")[1][0]
+    assert pos["source"] == "exchange" and pos["avg_price"] == 61.87
+    assert pos["last_close"] == 67.74 and pos["unrealized_pnl"] == 7_114.44
+    assert call(server, "GET", "/tax")[1]["exchange_charges"] == 7_016.72
+
+
+def test_new_position_shows_our_cost_until_the_exchange_reports_it(rig):
+    bot, dash, api, server = rig
+    call(server, "POST", "/control/start", {}, JSON)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))            # BUY fills at 103
+    pos = call(server, "GET", "/positions")[1][0]
+    assert pos["source"] == "bot" and pos["avg_price"] == pytest.approx(103.0 + 20.0 / pos["quantity"])
+
+
+def test_holding_without_a_tick_is_not_valued_at_zero(rig):
+    bot, dash, api, server = rig
+    api.portfolio = {"available_cash": 500_000.0,          # no exchange totals: computed path
+                     "holdings": [{"ticker": "BBB", "quantity": 1000, "avg_buy_price": 450.0,
+                                   "current_price": 500.0, "is_short": False}]}
+    bot.sync_portfolio()
+    acc = call(server, "GET", "/status")[1]["account"]
+    assert acc["source"] == "bot"
+    assert acc["invested"] == 500_000.0 and acc["total_wealth"] == 1_000_000.0
+
+
+def test_sell_fill_deducts_the_dp_charge_like_the_exchange():
+    from src.portfolio.state import PortfolioState
+    p = PortfolioState()
+    p.sync({"available_cash": 1000.0, "holdings": [{"ticker": "AAA", "quantity": 10}]})
+    p.apply_fill("AAA", "SELL", 10, 100.0)
+    assert p.cash == pytest.approx(1000.0 + 1000.0 - 20.0 - 15.34)
+
+
+def test_demo_exchange_reports_portal_fields_that_add_up():
+    from src.dashboard.demo import SimulatedAPI
+    api = SimulatedAPI(["A"], total_days=2)
+    api.observe("A", "2024-01-01", {"close": 10.0})
+    api.submit_order("A", "BUY", 100)
+    api.observe("A", "2024-01-02", {"close": 12.0})
+    p = api.get_portfolio()
+    assert p["total_wealth"] == pytest.approx(p["available_cash"] + p["portfolio_market_value"])
+    assert p["total_pnl"] == pytest.approx(200.0 - 20.0) and p["total_orders"] == 1
+    assert p["holdings"][0]["avg_buy_price"] == 10.0 and p["holdings"][0]["unrealized_pnl"] == pytest.approx(200.0)
+
+
 def test_strategy_list_shows_the_active_sizing(rig):
     bot, dash, api, server = rig
     bot.strategy.notional, bot.strategy.max_position_value = 75_000, 75_000

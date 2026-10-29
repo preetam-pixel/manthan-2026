@@ -9,7 +9,7 @@ tax is accounted for.
 - Single path to the exchange (`execution/client.py`), guarded by one risk gate (`risk/manager.py`).
 - Order outcomes are three-valued: `FILLED`, `REJECTED`, `UNCERTAIN`. A timeout is never assumed to be a rejection; the ticker is frozen until the exchange portfolio is re-read, so we never double-buy.
 - Kafka `consume_forever`: reconnects with 1→2→4→8→15 s backoff; positions, tax lots and the journal survive. Tested with a broker that fails mid-stream.
-- Exchange is the source of truth: portfolio re-synced every 60 s and after any uncertain/cash rejection.
+- Exchange is the source of truth: portfolio re-synced every 15 s, 2 s after each fill and after any uncertain/cash rejection; the dashboard shows the exchange's own figures, so it matches the portal.
 - Heartbeat: throttled to one ACK per 2 s (pre-flight bursts reached ~20 messages/s), exempt from our local rate budget, retried after 1 s. Verified live in the organisers' pre-flight test.
 - Client-side validation mirrors every documented rejection code (quantity 1..1,000,000, tradable ticker, cash, running stage), so the exchange should never have to reject us.
 - 160+ unit tests, all offline (fake API, fake Kafka, real HTTP server for the dashboard). Bugs found by testing against real data and fixed: sandbox orders blocked by a stage check, dashboard freeze when P&L is exactly 0, console crash on a zero-width space in a headline, news flooding the event feed.

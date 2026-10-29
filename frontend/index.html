@@ -191,7 +191,8 @@
                                 <span class="section-label">PORTFOLIO OVERVIEW</span>
                                 <h2>Performance Metrics</h2>
                             </div>
-                            <span class="simulation-label">SIMULATED</span>
+                            <span class="simulation-label" id="account-source"
+                                  title="EXCHANGE: the exchange's own figures, the same as the portal, re-read every 15 s and 2 s after each fill. BOT ESTIMATE: our own calculation, used only if the exchange gives no totals.">SIMULATED</span>
                         </div>
 
                         <div class="kpi-grid">
@@ -415,6 +416,11 @@
                             <span class="table-count" id="orders-count">0 orders</span>
                         </div>
 
+                        <p class="insight-sub">
+                            Orders sent by this bot session, with the exchange's answer. The portal lists every
+                            order on the account, including earlier runs.
+                        </p>
+
                         <div class="table-container">
                             <table id="orders-table">
                                 <thead>
@@ -588,7 +594,7 @@
 
                         <div class="costs-grid">
                             <article class="cost-card">
-                                <span class="cost-label">FEES PAID</span>
+                                <span class="cost-label">CHARGES PAID (EXCHANGE)</span>
                                 <h3 id="cost-fees-paid">₹—</h3>
                             </article>
                             <article class="cost-card">

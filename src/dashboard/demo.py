@@ -18,6 +18,10 @@ class SimulatedAPI:
         self.tickers = sorted(tickers)
         self.total_days, self.interval = total_days, interval_seconds
         self.cash, self.holdings = cash, {}
+        self.initial = cash
+        self.avg: dict[str, float] = {}               # avg buy price, brokerage excluded (as the exchange reports)
+        self.charges = self.realized = 0.0
+        self.orders = self.rejected = 0
         self.last: dict[str, float] = {}
         self.date, self.days_done = None, 0
         self.bars: dict[str, list] = {}
@@ -34,27 +38,54 @@ class SimulatedAPI:
                 "interval_seconds": self.interval, "is_sandbox_stream": True}
 
     def get_portfolio(self):
-        return {"cash": self.cash,
-                "holdings": [{"ticker": t, "quantity": q} for t, q in self.holdings.items() if q]}
+        """Same fields as the real /api/v1/portfolio (docs/API_VERIFIED.md)."""
+        holdings = []
+        for t, q in self.holdings.items():
+            if q:
+                price = self.last.get(t, self.avg[t])
+                holdings.append({"ticker": t, "quantity": q, "avg_buy_price": round(self.avg[t], 2),
+                                 "current_price": price, "market_value": q * price,
+                                 "unrealized_pnl": q * (price - self.avg[t]), "is_short": False})
+        market = sum(h["market_value"] for h in holdings)
+        unrealized = sum(h["unrealized_pnl"] for h in holdings)
+        total = self.cash + market
+        return {"initial_capital": self.initial, "available_cash": self.cash, "cash_balance": self.cash,
+                "portfolio_market_value": market, "total_wealth": total,
+                "realized_pnl": self.realized, "unrealized_pnl": unrealized,
+                "total_pnl": total - self.initial, "total_pnl_pct": round((total / self.initial - 1) * 100, 2),
+                "total_charges": self.charges, "total_taxes": 0.0,
+                "total_orders": self.orders, "rejected_orders_count": self.rejected,
+                "simulated_date": self.date, "holdings": holdings}
 
     def get_history(self, ticker, days):
         return {"prices": list(self.bars.get(ticker, []))}
 
     def submit_order(self, ticker, action, quantity, date=None):
+        self.orders += 1
         price = self.last.get(ticker)
         if not price:
+            self.rejected += 1
             return OrderResult("REJECTED", code="INVALID_TICKER")
+        held = self.holdings.get(ticker, 0)
         if action == "BUY":
             cost = quantity * price + BROKERAGE
             if cost > self.cash:
+                self.rejected += 1
                 return OrderResult("REJECTED", code="INSUFFICIENT_CAPITAL")
             self.cash -= cost
-            self.holdings[ticker] = self.holdings.get(ticker, 0) + quantity
+            self.charges += BROKERAGE
+            self.avg[ticker] = (self.avg.get(ticker, 0.0) * held + price * quantity) / (held + quantity)
+            self.holdings[ticker] = held + quantity
         else:
-            if self.holdings.get(ticker, 0) < quantity:
+            if held < quantity:
+                self.rejected += 1
                 return OrderResult("REJECTED", code="NO_POSITION")
             self.cash += quantity * price - BROKERAGE - DP_CHARGE
-            self.holdings[ticker] -= quantity
+            self.charges += BROKERAGE + DP_CHARGE
+            self.realized += quantity * (price - self.avg[ticker]) - BROKERAGE - DP_CHARGE
+            self.holdings[ticker] = held - quantity
+            if not self.holdings[ticker]:
+                self.avg.pop(ticker, None)
         return OrderResult("FILLED", body={"execution_price": price})
 
     # ---- replay support ----------------------------------------------
