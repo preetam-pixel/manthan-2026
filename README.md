@@ -40,3 +40,17 @@ py -m scripts.record_stream --export data/stream_X.jsonl history.json news.json
 py -m scripts.evaluate_strategies history.json
 ```
 Recordings are gitignored (`data/`). The sandbox loops the same days, so about 83 minutes captures a full 500-day loop even if you start mid-loop. The loader merges loops (first value wins) and warns if the same date ever has a different close.
+
+## Dashboard (frontend/)
+Read-only view plus a Start/Stop switch and strategy selector. Served by the bot itself on **127.0.0.1 only** (no token or gateway access in the browser).
+```bash
+py -m src.app --live --dashboard        # open http://127.0.0.1:8080/ (set DASHBOARD_PORT to change)
+```
+- With `--dashboard` the bot boots **STOPPED**: it keeps heartbeats and data flowing but sends no orders until you press **Start** (or set `START_TRADING=1`). Stop never disconnects Kafka or stops heartbeats.
+- The strategy can only be changed while stopped; the new strategy is applied between messages and warm-started from history.
+- Orders are allowed in the `simulation` and `development` stages (when status is running); never in `preflight`, paused or completed.
+- Offline rehearsal / demo fallback (no network, no token, simulated exchange):
+```bash
+py -m scripts.demo_dashboard data/stream_<time>.jsonl --strategy sma_band --speed 25 --start
+```
+- `?mock=1` serves the static fixtures; they use an older field layout than the live API, so use the demo above for a faithful preview.

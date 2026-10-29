@@ -6,6 +6,7 @@ fake events and a fake API; Kafka is only touched in ``run``.
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -16,7 +17,7 @@ from src.market_data.consumer import (TOPIC_NEWS, TOPIC_TICKS, is_preflight,
                                       is_price_tick, normalize_tick,
                                       parse_history, parse_history_bars,
                                       preflight_seq)
-from src.news.consumer import format_news
+from src.news.consumer import format_news, keyword_counts
 from src.portfolio.state import PortfolioState
 from src.risk.manager import RiskManager
 from src.strategy.registry import DEFAULT as DEFAULT_STRATEGY, create as create_strategy
@@ -27,11 +28,18 @@ WARM_START_PER_PREFLIGHT = 5  # history fetches per preflight tick (keeps ACKs p
 HEARTBEAT_RETRY_INTERVAL_S = 1.0  # minimum wait before retrying a failed ACK
 HEARTBEAT_MIN_INTERVAL_S = 2.0  # one ACK per 15 s is required; bursts of preflight ticks must not flood the API
 HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading closes
+TRADING_STAGES = ("simulation", "development")   # stages in which orders may be sent
 UNWIND_DAYS = 1              # in the live run, close longs when this many days remain
 
 
 def _log(*a):
-    print(time.strftime("%H:%M:%S"), *a, flush=True)
+    line = " ".join(str(x) for x in (time.strftime("%H:%M:%S"), *a))
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        # Headlines can hold characters a Windows console cannot encode (e.g. zero-width space);
+        # logging must never raise, or the rest of the event would be skipped.
+        print(line.encode("ascii", "replace").decode("ascii"), flush=True)
 
 
 def _event_time(event: dict) -> datetime:
@@ -50,7 +58,8 @@ class Bot:
                  risk: Optional[RiskManager] = None,
                  portfolio: Optional[PortfolioState] = None,
                  log: Callable = _log, clock: Callable[[], float] = time.monotonic,
-                 warm_start: bool = True):
+                 warm_start: bool = True, dash=None, trading_enabled: bool = True,
+                 strategy_name: str = DEFAULT_STRATEGY):
         self.api = api
         self.strategy = strategy or SMAStrategy()
         self.risk = risk or RiskManager()
@@ -67,6 +76,60 @@ class Bot:
         self._last_date: dict[str, str] = {}
         self._next_ack_after: float = 0.0
         self.latencies: list[float] = []
+
+        self.dash = dash                          # optional read-only DashboardState
+        self.trading_enabled = trading_enabled    # Start/Stop switch; False = log only, send nothing
+        self.strategy_name = strategy_name
+        self._pending_strategy: Optional[str] = None
+        self._control_lock = threading.Lock()
+
+    def _d(self, method: str, *args, **kwargs) -> None:
+        """Call a dashboard hook; the dashboard must never be able to break trading."""
+        if self.dash is None:
+            return
+        try:
+            getattr(self.dash, method)(*args, **kwargs)
+        except Exception:
+            pass
+
+    # ---- dashboard controls (called from the HTTP thread) -----------
+    def set_trading(self, enabled: bool) -> None:
+        with self._control_lock:
+            self.trading_enabled = bool(enabled)
+        self.log("TRADING", "ENABLED" if enabled else "STOPPED (heartbeats and data continue)")
+        self._d("record_event", "SYSTEM", "Trading started" if enabled else "Trading stopped",
+                reason="dashboard control")
+
+    def request_strategy(self, name: str) -> Optional[str]:
+        """Queue a strategy switch; applied by the bot thread between messages. Returns an error or None."""
+        with self._control_lock:
+            if self.trading_enabled:
+                return "Stop trading before changing strategy"
+            try:
+                create_strategy(name)               # validate the name only
+            except ValueError as exc:
+                return str(exc)
+            self._pending_strategy = name
+        return None
+
+    def _apply_pending_strategy(self) -> None:
+        with self._control_lock:
+            name, self._pending_strategy = self._pending_strategy, None
+        if not name or name == self.strategy_name:
+            return
+        self.strategy = create_strategy(name)
+        self.strategy_name = name
+        self._last_date.clear()
+        self.strategy.news = getattr(self.strategy, "news", None)  # keep attribute present
+        if hasattr(self.strategy, "sync_holdings"):
+            self.strategy.sync_holdings(dict(self.portfolio.held))
+        for ticker in sorted(self.universe or ()):
+            if self.warm_start:
+                self._warm_ticker(ticker)
+        self.log("STRATEGY switched to", name)
+        self._d("record_event", "SYSTEM", f"Strategy switched to {name}", reason="dashboard control")
+        if self.dash is not None:
+            self.dash.strategy = name
 
     # ---- startup ----------------------------------------------------
     def sync_portfolio(self) -> bool:
@@ -90,6 +153,7 @@ class Bot:
         self._load_universe()
         while self._warm_pending:
             self._warm_some()
+        self.refresh_stage(force=True)               # so the dashboard has simulation info immediately
 
     def _load_universe(self) -> None:
         if self.universe is not None:
@@ -106,16 +170,19 @@ class Bot:
             ticker = self._warm_pending.pop(0)
             if ticker in self._last_date:
                 continue  # live ticks already seen
-            try:
-                response = self.api.get_history(
-                    ticker, getattr(self.strategy, "history_days", HISTORY_DAYS))
-                if hasattr(self.strategy, "warm_start_bars"):
-                    self.strategy.warm_start_bars(ticker, parse_history_bars(response))
-                else:
-                    closes = [c for _, c in parse_history(response)]
-                    self.strategy.warm_start(ticker, closes[-SMA_N:])
-            except Exception as exc:
-                self.log("warm-start failed (cold start)", ticker, exc)
+            self._warm_ticker(ticker)
+
+    def _warm_ticker(self, ticker: str) -> None:
+        try:
+            response = self.api.get_history(
+                ticker, getattr(self.strategy, "history_days", HISTORY_DAYS))
+            if hasattr(self.strategy, "warm_start_bars"):
+                self.strategy.warm_start_bars(ticker, parse_history_bars(response))
+            else:
+                closes = [c for _, c in parse_history(response)]
+                self.strategy.warm_start(ticker, closes[-SMA_N:])
+        except Exception as exc:
+            self.log("warm-start failed (cold start)", ticker, exc)
 
     # ---- simulator state -------------------------------------------
     def refresh_stage(self, force: bool = False) -> bool:
@@ -127,7 +194,11 @@ class Bot:
             self.stage_info = stage if isinstance(stage, dict) else {}
             # live /stage reports lowercase status ("running"); the PDF shows uppercase
             status = str(stage.get("status") or "").upper()
-            self.sim_running = str(stage.get("stage") or "").lower() == "simulation" and status == "RUNNING"
+            # Orders are accepted while the stream is running in the live "simulation" stage and in the
+            # "development" sandbox (the brief says the sandbox is for testing API orders). Never in
+            # "preflight", "ready", paused or completed.
+            self.sim_running = (str(stage.get("stage") or "").lower() in TRADING_STAGES
+                                and status == "RUNNING")
         except Exception as exc:
             self.sim_running = False   # uncertain state: do not trade
             self.log("stage error", exc)
@@ -139,6 +210,11 @@ class Bot:
         if not isinstance(event, dict):
             return
         received_at = self.clock() if received_at is None else received_at
+        if self._pending_strategy:
+            try:
+                self._apply_pending_strategy()
+            except Exception as exc:
+                self.log("strategy switch failed", exc)
         try:
             if is_preflight(event):
                 self._on_preflight(event)
@@ -147,6 +223,13 @@ class Bot:
             elif topic == TOPIC_NEWS:
                 if (event.get("data") or {}).get("ticker"):      # skip empty filler events
                     self.log(format_news(event))   # informational only; never trades
+                    data = event.get("data") or {}
+                    pos, neg = keyword_counts(data)
+                    self._d("record_news", data.get("ticker"), event.get("simulated_date"),
+                            data.get("headline"), pos - neg)
+                    self._d("record_event", "NEWS", data.get("headline") or "news", ticker=data.get("ticker"),
+                            simulated_date=event.get("simulated_date"),
+                            reason="informational only; can only veto entries")
                     news = getattr(self.strategy, "news", None)
                     if news is not None:                         # entry veto only, never a trade trigger
                         score = news.update(event)
@@ -154,6 +237,7 @@ class Bot:
                             self.log(f"  news risk score {score:+.0f} (entries vetoed at <= {news.veto_threshold:g})")
         except Exception as exc:               # a bad event must not kill the loop
             self.log("event error", exc)
+            self._d("record_event", "ERROR", f"event error: {exc}")
 
     def _on_preflight(self, event: dict) -> None:
         seq = preflight_seq(event)
@@ -164,6 +248,7 @@ class Bot:
                     self.api.acknowledge_preflight(seq)
                     self._next_ack_after = now + HEARTBEAT_MIN_INTERVAL_S
                     self.log("heartbeat ack", seq)
+                    self._d("record_heartbeat", seq)
                 except Exception as exc:
                     self._next_ack_after = now + HEARTBEAT_RETRY_INTERVAL_S
                     self.log("heartbeat error", exc)
@@ -173,6 +258,8 @@ class Bot:
         self._warm_some()
         if not self.portfolio.synced:
             self.sync_portfolio()
+        if self.dash is not None:
+            self.refresh_stage()                     # cached; keeps the dashboard's stage current in pre-flight
 
     def _on_price_tick(self, event: dict, received_at: float) -> None:
         tick = normalize_tick(event)
@@ -189,6 +276,9 @@ class Bot:
             self._reset_ticker(ticker)               # sandbox loop restarted at Day 1
         if date is not None:
             self._last_date[ticker] = date
+        self._d("record_tick", ticker, date, tick)
+        if self.dash is not None:
+            self.refresh_stage()                     # keep the dashboard's simulation panel current
 
         self._reconcile_uncertain()
         if self.universe is None:
@@ -209,10 +299,20 @@ class Bot:
             signal = self.strategy.on_close(ticker, float(close), held, ts)
         if signal is None and held > 0 and self._unwind_due():
             signal = Signal(ticker, "SELL", held, ts, "end-of-run unwind")
+        self._record_equity(date)
         if signal is None:
             return
+        self._d("record_event", "SIGNAL", f"{signal.action} {signal.quantity} {ticker} @ {close}",
+                ticker=ticker, reason=signal.reason, simulated_date=date)
         self.refresh_stage()
         self._execute(signal, float(close), date, received_at)
+
+    def _record_equity(self, date: Optional[str]) -> None:
+        if self.dash is None:
+            return
+        invested = sum(q * self.dash.last_close.get(t, 0.0) for t, q in self.portfolio.held.items() if q > 0)
+        cash = self.portfolio.cash
+        self._d("record_equity", date, None if cash is None else cash + invested, cash, invested)
 
     def _unwind_due(self) -> bool:
         """True in the live run's last UNWIND_DAYS days (never in the looping sandbox)."""
@@ -238,16 +338,25 @@ class Bot:
     def _reset_ticker(self, ticker: str) -> None:
         self.log("simulated date went backwards; resetting", ticker)
         self.strategy.reset(ticker)
+        self._d("reset_ticker", ticker)
         self.portfolio.submitted = {k for k in self.portfolio.submitted if k[0] != ticker}
         self.sync_portfolio()
 
     # ---- execution --------------------------------------------------
     def _execute(self, signal: Signal, price: float, date: Optional[str], received_at: float) -> None:
+        if not self.trading_enabled:
+            self.log("TRADING STOPPED - not sending", signal.action, signal.quantity, signal.ticker,
+                     f"({signal.reason})")
+            self._d("record_event", "RISK_BLOCK", f"{signal.action} {signal.quantity} {signal.ticker} not sent",
+                    ticker=signal.ticker, reason="trading stopped from dashboard", simulated_date=date)
+            return
         decision = self.risk.evaluate(
             signal, price, self.clock() - received_at, date, self.universe,
             self.portfolio, self.sim_running)
         if not decision.approved:
             self.log("RISK BLOCK", signal.action, signal.quantity, signal.ticker, decision.reason)
+            self._d("record_event", "RISK_BLOCK", f"{signal.action} {signal.quantity} {signal.ticker} blocked",
+                    ticker=signal.ticker, reason=decision.reason, simulated_date=date)
             return
 
         key = (signal.ticker, signal.action, date)
@@ -257,6 +366,11 @@ class Bot:
         self.latencies.append(self.clock() - received_at)
         self.log("ORDER", signal.action, signal.quantity, signal.ticker, result.outcome,
                  result.code or "", f"({signal.reason})")
+        fees = 20.0 + (15.34 if signal.action == "SELL" else 0.0)
+        self._d("record_order", signal.ticker, signal.action, signal.quantity, price, result.outcome,
+                result.code, self.latencies[-1], fees if result.outcome == "FILLED" else None)
+        self._d("record_event", "ORDER", f"{signal.action} {signal.quantity} {signal.ticker}: {result.outcome}",
+                ticker=signal.ticker, reason=result.code or signal.reason, simulated_date=date)
         self._reconcile_result(signal, price, key, result)
 
     def _reconcile_result(self, signal: Signal, price: float, key: tuple, result: OrderResult) -> None:
@@ -264,6 +378,8 @@ class Bot:
             fill = result.body.get("execution_price")
             fill = fill if isinstance(fill, (int, float)) and not isinstance(fill, bool) else price
             self.portfolio.apply_fill(signal.ticker, signal.action, signal.quantity, fill)
+            self._d("record_fill", signal.ticker, signal.action, signal.quantity, fill,
+                    key[2])
         elif result.outcome == "UNCERTAIN":
             self.portfolio.mark_uncertain(signal.ticker)   # never assume rejected
             self._reconcile_uncertain()
@@ -304,7 +420,7 @@ def _safe_json(raw: bytes):
         return None   # malformed event: handle_message ignores non-dicts
 
 
-def run() -> None:
+def run(dashboard: bool = False) -> None:
     _load_dotenv()
     try:
         api = SimulationAPIClient()
@@ -327,8 +443,23 @@ def run() -> None:
         enable_auto_commit=False,
         value_deserializer=_safe_json,
     )
-    bot = Bot(api, strategy=strategy, warm_start=os.environ.get("WARM_START", "1") != "0")
+    dash = server = None
+    trading = True
+    if dashboard:
+        from src.dashboard.server import DashboardServer
+        from src.dashboard.state import DashboardState
+        dash = DashboardState(strategy_name)
+        # With the dashboard on, the bot boots STOPPED: press Start (or set START_TRADING=1).
+        trading = os.environ.get("START_TRADING", "0") == "1"
+    bot = Bot(api, strategy=strategy, warm_start=os.environ.get("WARM_START", "1") != "0",
+              dash=dash, trading_enabled=trading, strategy_name=strategy_name)
+    if dash is not None:
+        static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+        server = DashboardServer(bot, dash, static_dir, int(os.environ.get("DASHBOARD_PORT", "8080"))).start()
+        _log(f"Dashboard: {server.url}  (trading is {'ON' if trading else 'STOPPED - press Start in the dashboard'})")
     bot.startup()
+    if dash is not None:
+        dash.kafka_connected = True
     _log(f"Strategy: {strategy_name}")
     _log("Connected to Kafka. Listening...")
     try:
@@ -336,6 +467,8 @@ def run() -> None:
             bot.handle_message(message.topic, message.value)
     finally:
         _log("Decision latency:", bot.latency_summary())
+        if server is not None:
+            server.stop()
 
 
 def main() -> None:
@@ -343,7 +476,7 @@ def main() -> None:
         print("Dry start. Run `python -m src.app --live` to connect to Kafka and the simulator "
               "(requires TEAM_JWT_TOKEN or BOT_ACCESS_TOKEN).")
         return
-    run()
+    run(dashboard="--dashboard" in sys.argv)
 
 
 if __name__ == "__main__":

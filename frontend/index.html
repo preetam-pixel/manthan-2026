@@ -1,0 +1,1236 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>MANTHAN 2026 | Trading Dashboard</title>
+
+    <!-- CSS will be added in the next step -->
+    <link rel="stylesheet" href="./style.css">
+
+    <!-- Local chart library will be added later -->
+</head>
+
+<body>
+
+    <!-- =========================================
+         FIXTURE / OFFLINE BANNERS
+    ========================================== -->
+
+    <div id="fixture-banner" class="fixture-banner" hidden>
+        <span class="status-dot"></span>
+        USING FIXTURE DATA — SIMULATED RESULTS
+    </div>
+
+    <div id="offline-banner" class="offline-banner" hidden>
+        <strong>BOT OFFLINE</strong>
+        <span id="offline-last-seen">Last seen: —</span>
+    </div>
+
+
+    <!-- =========================================
+         APPLICATION HEADER
+    ========================================== -->
+
+    <header class="app-header">
+
+        <div class="brand">
+            <div class="brand-logo">M</div>
+
+            <div class="brand-info">
+                <h1>MANTHAN <span>2026</span></h1>
+                <p>Autonomous Trading System</p>
+            </div>
+        </div>
+
+        <div class="header-status">
+
+            <div class="status-item">
+                <span class="status-label">BOT STATUS</span>
+
+                <span id="bot-state" class="status-value">
+                    <span class="status-dot"></span>
+                    —
+                </span>
+            </div>
+
+            <div class="status-item">
+                <span class="status-label">KAFKA</span>
+
+                <span id="kafka-status" class="status-value">
+                    <span class="status-dot"></span>
+                    —
+                </span>
+            </div>
+
+            <div class="status-item">
+                <span class="status-label">HEARTBEAT ACK</span>
+
+                <span id="heartbeat-status" class="status-value">
+                    Seq —
+                </span>
+
+                <small id="heartbeat-time">—</small>
+            </div>
+
+            <div class="status-item">
+                <span class="status-label">SIMULATION</span>
+
+                <span id="simulation-status" class="status-value">
+                    —
+                </span>
+            </div>
+
+            <div class="mode-badge" id="simulation-mode">
+                SANDBOX
+            </div>
+
+        </div>
+
+    </header>
+
+
+    <!-- =========================================
+         SIMULATION PROGRESS
+    ========================================== -->
+
+    <section class="simulation-progress">
+
+        <div class="progress-header">
+
+            <div>
+                <span class="section-label">SIMULATION PROGRESS</span>
+
+                <h2 id="simulation-date">
+                    —
+                </h2>
+            </div>
+
+            <div class="progress-numbers">
+                <span id="days-completed">—</span>
+                <span class="progress-divider">/</span>
+                <span id="total-days">—</span>
+                <span class="progress-unit">days</span>
+            </div>
+
+        </div>
+
+        <div
+            class="progress-track"
+            role="progressbar"
+            aria-label="Simulation progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            id="simulation-progress-bar">
+
+            <div
+                class="progress-fill"
+                id="simulation-progress-fill">
+            </div>
+
+        </div>
+
+        <div class="progress-footer">
+            <span id="simulation-stage">Stage: —</span>
+            <span id="simulation-interval">Interval: —</span>
+        </div>
+
+    </section>
+
+
+    <!-- =========================================
+         MAIN DASHBOARD
+    ========================================== -->
+
+    <main class="dashboard">
+
+
+        <!-- =====================================
+             KPI CARDS
+        ====================================== -->
+
+        <section class="kpi-section">
+
+            <div class="section-heading">
+                <div>
+                    <span class="section-label">PORTFOLIO OVERVIEW</span>
+                    <h2>Performance Metrics</h2>
+                </div>
+
+                <span class="simulation-label">
+                    SIMULATED
+                </span>
+            </div>
+
+
+            <div class="kpi-grid">
+
+                <article class="kpi-card">
+                    <span class="kpi-label">TOTAL WEALTH</span>
+
+                    <h3 id="kpi-total-wealth">₹—</h3>
+
+                    <span class="kpi-change" id="kpi-wealth-change">
+                        —
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">AVAILABLE CASH</span>
+
+                    <h3 id="kpi-cash">₹—</h3>
+
+                    <span class="kpi-change" id="kpi-cash-change">
+                        —
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">INVESTED VALUE</span>
+
+                    <h3 id="kpi-invested">₹—</h3>
+
+                    <span class="kpi-change" id="kpi-invested-change">
+                        —
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">NET P&L</span>
+
+                    <h3 id="kpi-net-pnl">₹—</h3>
+
+                    <span class="kpi-change" id="kpi-net-pnl-percent">
+                        —
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">ORDERS SENT</span>
+
+                    <h3 id="kpi-orders-sent">—</h3>
+
+                    <span class="kpi-change" id="kpi-orders-sent-change">
+                        Since run start
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">ORDERS REJECTED</span>
+
+                    <h3 id="kpi-orders-rejected">—</h3>
+
+                    <span class="kpi-change" id="kpi-rejection-rate">
+                        Rejection rate: —
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">AVG DECISION LATENCY</span>
+
+                    <h3 id="kpi-latency">—</h3>
+
+                    <span class="kpi-change">
+                        Target window: 3–4 s
+                    </span>
+                </article>
+
+
+                <article class="kpi-card">
+                    <span class="kpi-label">UPTIME</span>
+
+                    <h3 id="kpi-uptime">—</h3>
+
+                    <span class="kpi-change">
+                        Since bot startup
+                    </span>
+                </article>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             CHARTS
+        ====================================== -->
+
+        <section class="charts-section">
+
+            <div class="section-heading">
+                <div>
+                    <span class="section-label">MARKET ANALYTICS</span>
+                    <h2>Trading Intelligence</h2>
+                </div>
+            </div>
+
+
+            <!-- PRICE CHART -->
+
+            <article class="chart-card price-chart-card">
+
+                <div class="chart-header">
+
+                    <div>
+                        <h3>Price & Indicators</h3>
+
+                        <p>
+                            Close price, SMA8, trading bands,
+                            and execution markers
+                        </p>
+                    </div>
+
+                    <div class="chart-controls">
+
+                        <label for="ticker-selector">
+                            Ticker
+                        </label>
+
+                        <select id="ticker-selector">
+                            <option value="HAVN">HAVN</option>
+                        </select>
+
+                    </div>
+
+                </div>
+
+
+                <div class="chart-legend">
+
+                    <span class="legend-item">
+                        <span class="legend-dot close-legend"></span>
+                        Close
+                    </span>
+
+                    <span class="legend-item">
+                        <span class="legend-dot sma-legend"></span>
+                        SMA8
+                    </span>
+
+                    <span class="legend-item">
+                        <span class="legend-dot band-legend"></span>
+                        ±1.5% Band
+                    </span>
+
+                    <span class="legend-item">
+                        <span class="legend-dot buy-legend"></span>
+                        BUY
+                    </span>
+
+                    <span class="legend-item">
+                        <span class="legend-dot sell-legend"></span>
+                        SELL
+                    </span>
+
+                </div>
+
+
+                <div class="chart-container">
+
+                    <div
+                        id="price-chart"
+                        class="chart"
+                        role="img"
+                        aria-label="Stock price and indicators chart">
+
+                        <div class="chart-placeholder">
+                            Price chart loading...
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </article>
+
+
+            <!-- EQUITY CURVE -->
+
+            <div class="chart-grid">
+
+                <article class="chart-card">
+
+                    <div class="chart-header">
+                        <div>
+                            <h3>Equity Curve</h3>
+
+                            <p>
+                                Total wealth over simulated days
+                            </p>
+                        </div>
+                    </div>
+
+                    <div
+                        id="equity-chart"
+                        class="chart"
+                        role="img"
+                        aria-label="Portfolio equity curve">
+
+                        <div class="chart-placeholder">
+                            Equity chart loading...
+                        </div>
+
+                    </div>
+
+                </article>
+
+
+                <!-- EXPOSURE -->
+
+                <article class="chart-card">
+
+                    <div class="chart-header">
+                        <div>
+                            <h3>Portfolio Exposure</h3>
+
+                            <p>
+                                Cash vs individual stock positions
+                            </p>
+                        </div>
+                    </div>
+
+                    <div
+                        id="exposure-chart"
+                        class="chart"
+                        role="img"
+                        aria-label="Portfolio exposure chart">
+
+                        <div class="chart-placeholder">
+                            Exposure chart loading...
+                        </div>
+
+                    </div>
+
+                </article>
+
+
+                <!-- LATENCY -->
+
+                <article class="chart-card">
+
+                    <div class="chart-header">
+                        <div>
+                            <h3>Decision Latency</h3>
+
+                            <p>
+                                Processing time per order
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="latency-summary">
+
+                        <div>
+                            <span>AVG</span>
+                            <strong id="latency-avg">—</strong>
+                        </div>
+
+                        <div>
+                            <span>P95</span>
+                            <strong id="latency-p95">—</strong>
+                        </div>
+
+                        <div>
+                            <span>MAX</span>
+                            <strong id="latency-max">—</strong>
+                        </div>
+
+                    </div>
+
+                    <div
+                        id="latency-chart"
+                        class="chart"
+                        role="img"
+                        aria-label="Order decision latency chart">
+
+                        <div class="chart-placeholder">
+                            Latency chart loading...
+                        </div>
+
+                    </div>
+
+                </article>
+
+
+                <!-- RISK BLOCKS -->
+
+                <article class="chart-card">
+
+                    <div class="chart-header">
+                        <div>
+                            <h3>Risk Blocks</h3>
+
+                            <p>
+                                Orders prevented by risk checks
+                            </p>
+                        </div>
+                    </div>
+
+                    <div
+                        id="risk-block-chart"
+                        class="chart"
+                        role="img"
+                        aria-label="Risk blocks by reason">
+
+                        <div class="chart-placeholder">
+                            Risk chart loading...
+                        </div>
+
+                    </div>
+
+                </article>
+
+            </div>
+
+
+            <!-- DISTANCE FROM TRIGGER -->
+
+            <article class="chart-card">
+
+                <div class="chart-header">
+
+                    <div>
+                        <h3>Distance From Trigger</h3>
+
+                        <p>
+                            Close / SMA8 − 1
+                        </p>
+                    </div>
+
+                    <div class="trigger-legend">
+
+                        <span>
+                            <span class="legend-dot sell-legend"></span>
+                            Sell zone
+                        </span>
+
+                        <span>
+                            <span class="legend-dot neutral-legend"></span>
+                            Neutral
+                        </span>
+
+                        <span>
+                            <span class="legend-dot buy-legend"></span>
+                            Buy zone
+                        </span>
+
+                    </div>
+
+                </div>
+
+                <div
+                    id="trigger-heatmap"
+                    class="trigger-heatmap">
+
+                    <div class="chart-placeholder">
+                        Heatmap loading...
+                    </div>
+
+                </div>
+
+            </article>
+
+        </section>
+
+
+        <!-- =====================================
+             POSITIONS
+        ====================================== -->
+
+        <section class="positions-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-label">PORTFOLIO</span>
+                    <h2>Open Positions</h2>
+                </div>
+
+                <span
+                    class="table-count"
+                    id="positions-count">
+                    0 positions
+                </span>
+
+            </div>
+
+
+            <div class="table-container">
+
+                <table id="positions-table">
+
+                    <thead>
+                        <tr>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="ticker">
+                                    Ticker
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="quantity">
+                                    Quantity
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="last_close">
+                                    Last Close
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="value">
+                                    Market Value
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="avg_price">
+                                    Avg Buy Price
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="unrealized_pnl">
+                                    Unrealized P&L
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="cap_used_pct">
+                                    Cap Used
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="held_since">
+                                    Held Since
+                                </button>
+                            </th>
+
+                            <th>
+                                <button
+                                    class="sort-button"
+                                    data-sort="holding_class">
+                                    Holding Class
+                                </button>
+                            </th>
+
+                        </tr>
+                    </thead>
+
+                    <tbody id="positions-table-body">
+
+                        <tr>
+                            <td colspan="9" class="empty-state">
+                                No open positions
+                            </td>
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             ORDERS
+        ====================================== -->
+
+        <section class="orders-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-label">EXECUTION</span>
+                    <h2>Orders</h2>
+                </div>
+
+                <span
+                    class="table-count"
+                    id="orders-count">
+                    0 orders
+                </span>
+
+            </div>
+
+
+            <div class="table-container">
+
+                <table id="orders-table">
+
+                    <thead>
+                        <tr>
+
+                            <th>Time</th>
+
+                            <th>Ticker</th>
+
+                            <th>Action</th>
+
+                            <th>Quantity</th>
+
+                            <th>Fill Price</th>
+
+                            <th>Status</th>
+
+                            <th>Reject Code</th>
+
+                            <th>Fees</th>
+
+                            <th>Latency</th>
+
+                        </tr>
+                    </thead>
+
+                    <tbody id="orders-table-body">
+
+                        <tr>
+                            <td colspan="9" class="empty-state">
+                                No orders available
+                            </td>
+                        </tr>
+
+                    </tbody>
+
+                    <tfoot>
+
+                        <tr>
+                            <td colspan="7">
+                                Total Fees Paid
+                            </td>
+
+                            <td id="orders-total-fees">
+                                ₹—
+                            </td>
+
+                            <td>—</td>
+                        </tr>
+
+                    </tfoot>
+
+                </table>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             LIVE ACTIVITY
+        ====================================== -->
+
+        <section class="activity-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-label">SYSTEM EVENTS</span>
+                    <h2>Live Activity</h2>
+                </div>
+
+                <div class="activity-controls">
+
+                    <span id="activity-count">
+                        0 events
+                    </span>
+
+                    <label class="pause-feed-label">
+
+                        <input
+                            type="checkbox"
+                            id="pause-activity-feed">
+
+                        Pause feed
+
+                    </label>
+
+                </div>
+
+            </div>
+
+
+            <!-- EVENT TYPE FILTERS -->
+
+            <div class="activity-filters">
+
+                <button
+                    class="filter-chip active"
+                    data-filter="ALL">
+                    All
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="TICK">
+                    TICK
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="SIGNAL">
+                    SIGNAL
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="ORDER">
+                    ORDER
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="RISK_BLOCK">
+                    RISK BLOCK
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="NEWS">
+                    NEWS
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="ERROR">
+                    ERROR
+                </button>
+
+                <button
+                    class="filter-chip"
+                    data-filter="SYSTEM">
+                    SYSTEM
+                </button>
+
+
+                <label for="activity-ticker-filter">
+                    Ticker
+                </label>
+
+                <select id="activity-ticker-filter">
+
+                    <option value="ALL">
+                        All tickers
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <!-- ACTIVITY FEED -->
+
+            <div
+                id="activity-feed"
+                class="activity-feed"
+                aria-live="polite">
+
+                <div class="empty-state">
+                    Waiting for events...
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             NEWS
+        ====================================== -->
+
+        <section class="news-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-label">MARKET INTELLIGENCE</span>
+                    <h2>Latest News</h2>
+                </div>
+
+                <span class="informational-badge">
+                    INFORMATIONAL ONLY
+                </span>
+
+            </div>
+
+
+            <div
+                id="news-list"
+                class="news-list">
+
+                <div class="empty-state">
+                    No news available
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             STRATEGY & CONTROLS
+        ====================================== -->
+
+        <section class="controls-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-label">BOT MANAGEMENT</span>
+                    <h2>Strategy & Controls</h2>
+                </div>
+
+            </div>
+
+
+            <div class="controls-grid">
+
+
+                <!-- BOT CONTROL -->
+
+                <article class="control-card">
+
+                    <div class="control-card-header">
+
+                        <div>
+                            <h3>Trading Control</h3>
+
+                            <p>
+                                Start or pause new trading orders
+                            </p>
+                        </div>
+
+                        <span
+                            id="control-bot-state"
+                            class="status-badge">
+                            —
+                        </span>
+
+                    </div>
+
+
+                    <div class="trading-control">
+
+                        <button
+                            id="start-trading-button"
+                            class="button button-start"
+                            type="button"
+                            disabled>
+
+                            Start Trading
+
+                        </button>
+
+
+                        <button
+                            id="stop-trading-button"
+                            class="button button-stop"
+                            type="button"
+                            disabled>
+
+                            Stop Trading
+
+                        </button>
+
+                    </div>
+
+
+                    <p
+                        id="control-disabled-reason"
+                        class="control-message">
+
+                        —
+
+                    </p>
+
+
+                    <p class="control-description">
+
+                        Stopping pauses new orders only.
+                        Kafka and heartbeat processing remain active.
+
+                    </p>
+
+                </article>
+
+
+                <!-- STRATEGY SELECTOR -->
+
+                <article class="control-card">
+
+                    <div class="control-card-header">
+
+                        <div>
+                            <h3>Strategy Configuration</h3>
+
+                            <p>
+                                Select the active trading strategy
+                            </p>
+                        </div>
+
+                    </div>
+
+
+                    <label for="strategy-selector">
+                        Active Strategy
+                    </label>
+
+
+                    <select
+                        id="strategy-selector"
+                        disabled>
+
+                        <option value="sma_band">
+                            SMA8 ±1.5%
+                        </option>
+
+                    </select>
+
+
+                    <div class="strategy-details">
+
+                        <span class="section-label">
+                            DESCRIPTION
+                        </span>
+
+                        <p id="strategy-description">
+                            —
+                        </p>
+
+                    </div>
+
+
+                    <div class="strategy-details">
+
+                        <span class="section-label">
+                            PARAMETERS
+                        </span>
+
+                        <pre id="strategy-parameters">—</pre>
+
+                    </div>
+
+
+                    <div
+                        id="strategy-change-banner"
+                        class="strategy-change-banner"
+                        hidden>
+
+                        Strategy changed — open positions keep
+                        their exits under the new strategy.
+
+                    </div>
+
+
+                    <p
+                        id="strategy-disabled-reason"
+                        class="control-message">
+
+                        —
+
+                    </p>
+
+                </article>
+
+            </div>
+
+        </section>
+
+
+        <!-- =====================================
+             TAX & COSTS
+        ====================================== -->
+
+        <section class="costs-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-label">FINANCIAL BREAKDOWN</span>
+                    <h2>Tax & Costs</h2>
+                </div>
+
+            </div>
+
+
+            <div class="costs-grid">
+
+                <article class="cost-card">
+
+                    <span class="cost-label">
+                        FEES PAID
+                    </span>
+
+                    <h3 id="cost-fees-paid">
+                        ₹—
+                    </h3>
+
+                </article>
+
+
+                <article class="cost-card">
+
+                    <span class="cost-label">
+                        ESTIMATED STCG LIABILITY
+                    </span>
+
+                    <h3 id="cost-stcg">
+                        Not available
+                    </h3>
+
+                </article>
+
+
+                <article class="cost-card">
+
+                    <span class="cost-label">
+                        ESTIMATED LTCG LIABILITY
+                    </span>
+
+                    <h3 id="cost-ltcg">
+                        Not available
+                    </h3>
+
+                </article>
+
+
+                <article class="cost-card">
+
+                    <span class="cost-label">
+                        TAX-LOSS CREDITS
+                    </span>
+
+                    <h3 id="cost-tax-loss-credits">
+                        Not available
+                    </h3>
+
+                </article>
+
+            </div>
+
+        </section>
+
+
+    </main>
+
+
+    <!-- =========================================
+         CONFIRMATION MODAL
+    ========================================== -->
+
+    <dialog id="start-confirmation-dialog">
+
+        <div class="dialog-content">
+
+            <h2>Start Trading?</h2>
+
+            <p>
+                This will allow the bot to submit new orders
+                to the simulated exchange.
+            </p>
+
+            <p>
+                Existing positions will remain unchanged.
+            </p>
+
+
+            <div class="dialog-actions">
+
+                <button
+                    id="cancel-start-button"
+                    class="button button-secondary"
+                    type="button">
+
+                    Cancel
+
+                </button>
+
+
+                <button
+                    id="confirm-start-button"
+                    class="button button-start"
+                    type="button">
+
+                    Confirm Start
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </dialog>
+
+
+    <!-- =========================================
+         FOOTER
+    ========================================== -->
+
+    <footer class="app-footer">
+
+        <div class="footer-left">
+
+            <span class="footer-logo">
+                MANTHAN 2026
+            </span>
+
+            <span>
+                JNNCE Shivamogga
+            </span>
+
+        </div>
+
+
+        <div class="footer-right">
+
+            <span id="last-updated">
+                Last updated: —
+            </span>
+
+            <span id="connection-status">
+                Connecting...
+            </span>
+
+        </div>
+
+    </footer>
+
+
+    <!-- =========================================
+         JAVASCRIPT
+    ========================================== -->
+
+    <script src="./vendor/chart.umd.js"></script>
+<script src="./app.js" defer></script>
+</body>
+</html>

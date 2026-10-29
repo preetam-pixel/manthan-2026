@@ -1,0 +1,72 @@
+
+{
+  "ticker": "HAVN",
+  "series": [
+    {
+      "timestamp": "2026-10-29T09:30:00Z",
+      "open": 245.00,
+      "high": 247.50,
+      "low": 244.20,
+      "close": 246.80,
+      "volume": 12000,
+      "sma": 245.50,
+      "upper_band": 248.00,
+      "lower_band": 243.00
+    },
+    {
+      "timestamp": "2026-10-29T10:00:00Z",
+      "open": 246.80,
+      "high": 250.00,
+      "low": 246.00,
+      "close": 249.20,
+      "volume": 15000,
+      "sma": 246.20,
+      "upper_band": 249.50,
+      "lower_band": 242.90
+    },
+    {
+      "timestamp": "2026-10-29T10:30:00Z",
+      "open": 249.20,
+      "high": 251.00,
+      "low": 248.50,
+      "close": 250.40,
+      "volume": 18000,
+      "sma": 247.10,
+      "upper_band": 250.80,
+      "lower_band": 243.40
+    },
+    {
+      "timestamp": "2026-10-29T11:00:00Z",
+      "open": 250.40,
+      "high": 253.00,
+      "low": 249.80,
+      "close": 252.75,
+      "volume": 22000,
+      "sma": 248.00,
+      "upper_band": 252.00,
+      "lower_band": 244.00
+    },
+    {
+      "timestamp": "2026-10-29T11:30:00Z",
+      "open": 252.75,
+      "high": 253.20,
+      "low": 251.00,
+      "close": 251.60,
+      "volume": 16000,
+      "sma": 249.00,
+      "upper_band": 253.00,
+      "lower_band": 245.00
+    },
+    {
+      "timestamp": "2026-10-29T12:00:00Z",
+      "open": 251.60,
+      "high": 254.00,
+      "low": 251.20,
+      "close": 253.50,
+      "volume": 19000,
+      "sma": 250.00,
+      "upper_band": 254.00,
+      "lower_band": 246.00
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+
+{
+  "strategies": [
+    {
+      "id": "SMA_CROSSOVER",
+      "name": "SMA Crossover",
+      "description": "Generates signals using short and long moving average crossovers",
+      "enabled": true
+    },
+    {
+      "id": "MEAN_REVERSION",
+      "name": "Mean Reversion",
+      "description": "Looks for price deviations from the average",
+      "enabled": true
+    },
+    {
+      "id": "MOMENTUM",
+      "name": "Momentum",
+      "description": "Follows strong price movements",
+      "enabled": true
+    }
+  ],
+  "selected_strategy": "SMA_CROSSOVER"
+}

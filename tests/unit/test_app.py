@@ -210,7 +210,10 @@ def test_stage_status_is_case_insensitive():
     bot, api = started(FakeAPI(stage=("simulation", "running")))
     assert bot.refresh_stage(force=True) is True
     bot, api = started(FakeAPI(stage=("development", "running")))
-    assert bot.refresh_stage(force=True) is False
+    assert bot.refresh_stage(force=True) is True             # sandbox accepts test orders
+    for stage in ("preflight", "ready"):
+        bot, api = started(FakeAPI(stage=(stage, "running")))
+        assert bot.refresh_stage(force=True) is False, stage
 
 
 def test_trades_without_any_preflight_tick_after_startup():
@@ -351,3 +354,31 @@ def test_latency_summary():
     bot.latencies = [0.1, 0.2, 0.3, 0.4, 2.0]
     s = bot.latency_summary()
     assert s["orders"] == 5 and s["max_s"] == 2.0 and s["avg_s"] == pytest.approx(0.6)
+
+
+def test_log_survives_characters_the_console_cannot_encode(monkeypatch):
+    import io
+    import sys
+    from src.app import _log
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252", errors="strict"))
+    _log("NEWS", "Insider​ Selling – café 中文")      # must not raise
+    sys.stdout.flush()
+    assert b"NEWS" in raw.getvalue()
+
+
+def test_news_filter_still_updates_when_headline_has_odd_characters():
+    from src.strategy.disciplined import ensemble
+    api = FakeAPI()
+    bot = Bot(api, strategy=ensemble(), log=lambda *a: None, clock=lambda: 0.0)
+    bot.handle_message("market.news", {"event_type": "news_flash", "simulated_date": "2021-02-01",
+                                       "data": {"ticker": "AAA", "headline": "Fraud​ probe",
+                                                "description": "lawsuit"}})
+    assert bot.strategy.news.veto_buy("AAA", "2021-02-01")
+
+
+def test_bot_trades_in_the_development_sandbox():
+    api = FakeAPI(stage=("development", "running"))
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
