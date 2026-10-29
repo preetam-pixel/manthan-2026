@@ -26,6 +26,18 @@ py -m pytest                             # 160+ unit tests, no network needed
 `.env` (gitignored) needs `GATEWAY`, `BROKER`, `HACKATHON_USERNAME`, `BOT_ACCESS_TOKEN`.
 Optional: `STRATEGY` (default `sma_pro`), `START_TRADING=1`, `DASHBOARD_PORT`, `WARM_START=0`.
 
+**Position size** (rupees, optional): `TRADE_SIZE_INR` per buy and `MAX_POSITION_INR` per stock. Setting both
+equal means one buy per stock (no second buy). 500-day replay, same strategy:
+
+| TRADE_SIZE_INR / MAX_POSITION_INR | return | max drawdown | worst trade |
+|---|---|---|---|
+| 75000 / 150000 (default `sma_pro`) | +28.2% | 10.2% | −₹15,450 |
+| 75000 / 75000 (one buy per stock) | +21.0% | 8.6% | −₹8,417 |
+| 50000 / 100000 (original bot) | +17.9% | 7.1% | −₹10,323 |
+| 25000 / 50000 | +10.8% | 4.0% | −₹5,195 |
+
+Smaller size shrinks gains and losses together; return per unit of drawdown is similar (2.3–2.8) at every size.
+
 ## What it does (mapped to the problem statement)
 
 | Requirement | Implementation |

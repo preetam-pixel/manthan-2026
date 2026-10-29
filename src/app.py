@@ -476,6 +476,27 @@ def _safe_json(raw: bytes):
         return None   # malformed event: handle_message ignores non-dicts
 
 
+def apply_sizing(strategy, env) -> None:
+    """Optional position-size overrides for the SMA strategies, from the environment.
+
+    TRADE_SIZE_INR    rupees per buy order           (sma_pro default 75,000)
+    MAX_POSITION_INR  rupees max held in one stock   (sma_pro default 150,000; equal to
+                      TRADE_SIZE_INR means one buy per stock, no second buy)
+    """
+    if not hasattr(strategy, "notional"):
+        return
+    size, cap = env.get("TRADE_SIZE_INR"), env.get("MAX_POSITION_INR")
+    try:
+        if size:
+            strategy.notional = float(size)
+        if cap:
+            strategy.max_position_value = float(cap)
+    except ValueError:
+        raise ValueError("TRADE_SIZE_INR and MAX_POSITION_INR must be numbers (rupees)") from None
+    if strategy.notional <= 0 or strategy.max_position_value < strategy.notional:
+        raise ValueError("Need TRADE_SIZE_INR > 0 and MAX_POSITION_INR >= TRADE_SIZE_INR")
+
+
 INSTANCE_LOCK_PORT = 47913
 
 
@@ -511,8 +532,11 @@ def run(dashboard: bool = False) -> None:
     strategy_name = os.environ.get("STRATEGY", DEFAULT_STRATEGY)
     try:
         strategy = create_strategy(strategy_name)   # validate before touching the network
+        apply_sizing(strategy, os.environ)
     except ValueError as exc:
         raise SystemExit(str(exc))
+    if hasattr(strategy, "notional"):
+        _log(f"Sizing: Rs {strategy.notional:,.0f} per buy, Rs {strategy.max_position_value:,.0f} max per stock")
     from kafka import KafkaConsumer  # imported lazily so tests need no broker
 
     broker = os.environ.get("BROKER", "192.168.65.157:9094")

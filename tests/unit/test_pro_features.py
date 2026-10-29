@@ -248,3 +248,27 @@ def test_exchange_cost_basis_used_for_existing_holdings():
     assert bot.portfolio.avg_price == {"BBB": 90.0}
     bot.handle_message("market.ticks", tick("BBB", 100.0, "2026-01-11"))
     assert bot.tax.avg_cost("BBB") == pytest.approx(90.0)
+
+
+# ---- configurable position size ----------------------------------------------------------
+def test_sizing_overrides_from_environment():
+    from src.app import apply_sizing
+    s = sma_pro()
+    apply_sizing(s, {"TRADE_SIZE_INR": "75000", "MAX_POSITION_INR": "75000"})   # one buy per stock
+    assert (s.notional, s.max_position_value) == (75_000, 75_000)
+    bot, api = bot_with(s)
+    assert bot.risk.max_pos_value == 75_000
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2026-01-11"))
+    bot.handle_message("market.ticks", tick("AAA", 104.0, "2026-01-12"))        # still above band
+    assert [o[1] for o in api.orders] == ["BUY"]                                   # no second buy
+
+
+def test_sizing_defaults_untouched_and_bad_values_rejected():
+    from src.app import apply_sizing
+    s = sma_pro()
+    apply_sizing(s, {})
+    assert (s.notional, s.max_position_value) == (75_000, 150_000)
+    for bad in ({"TRADE_SIZE_INR": "abc"}, {"TRADE_SIZE_INR": "0"},
+                {"TRADE_SIZE_INR": "80000", "MAX_POSITION_INR": "50000"}):
+        with pytest.raises(ValueError):
+            apply_sizing(sma_pro(), bad)
