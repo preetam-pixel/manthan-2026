@@ -99,6 +99,7 @@ class Bot:
         self._market_moved_at: Optional[float] = None   # last tick or fill: exchange figures changed
         self._sync_retry_at: Optional[float] = None     # after a failed sync, not before this
         self._state_lock = threading.RLock()     # message handling vs. the idle-resync timer
+        self._pending_buys: dict[str, tuple] = {}   # ticker -> (signal, price, date, received_at)
         self._sync_risk_cap()
 
     def _sync_risk_cap(self) -> None:
@@ -142,6 +143,7 @@ class Bot:
             return
         self.strategy = create_strategy(name)
         self.strategy_name = name
+        self._pending_buys.clear()
         self._sync_risk_cap()
         self._last_date.clear()
         self.strategy.news = getattr(self.strategy, "news", None)  # keep attribute present
@@ -246,12 +248,48 @@ class Bot:
                 and now - self._market_moved_at >= SETTLE_RESYNC_S)
 
     def resync_if_due(self) -> None:
-        """Called once a second by a timer thread, so the exchange is re-read in the quiet gap
-        after a day's orders instead of waiting for the next day's first message. Shares the
-        state lock with handle_message: the two never run at the same time."""
+        """Re-read the exchange in the quiet gap after a day's orders instead of waiting for the
+        next day's first message. Shares the state lock with handle_message."""
         with self._state_lock:
             if self._resync_due():
                 self.sync_portfolio()
+
+    def on_timer(self) -> None:
+        """Called every TIMER_S by a thread: send BUYs whose wait for headlines is over, then
+        re-read the exchange if due. Never runs at the same time as handle_message."""
+        with self._state_lock:
+            self.flush_pending_buys()
+            if self._resync_due():
+                self.sync_portfolio()
+
+    def flush_pending_buys(self) -> None:
+        """Send, or skip on bad news, each BUY that has waited wait_for_news_s for the day's
+        headlines (they arrive ~150 ms after the prices; the order still fills at that close)."""
+        if not self._pending_buys:
+            return
+        wait = getattr(self.strategy, "wait_for_news_s", 0.0)
+        news = getattr(self.strategy, "news", None)
+        now = self.clock()
+        for ticker, (signal, price, date, received_at) in list(self._pending_buys.items()):
+            if now - received_at < wait:
+                continue
+            del self._pending_buys[ticker]
+            score = news.recent_score(ticker, date) if news is not None else 0.0
+            if news is not None and score <= news.veto_threshold:
+                self._skip_on_news(signal, price, date, score, news)
+            else:
+                self._execute(signal, price, date, received_at)
+
+    def _skip_on_news(self, signal: Signal, price: float, date: Optional[str], score: float, news) -> None:
+        reason = (f"news veto: last {news.lookback_days} days of headlines score {score:+.0f} "
+                  f"(skip at <= {news.veto_threshold:+.0f})")
+        self.log("NEWS VETO - not buying", signal.quantity, signal.ticker, f"({reason})")
+        self._d("record_event", "RISK_BLOCK", f"BUY {signal.quantity} {signal.ticker} skipped",
+                ticker=signal.ticker, reason=reason, simulated_date=date)
+        self.journal.record({"simulated_date": date, "ticker": signal.ticker, "strategy": self.strategy_name,
+                             "action": "BUY", "quantity": signal.quantity, "price": price,
+                             "reason": signal.reason, "news_score": score,
+                             "risk_approved": False, "risk_reason": reason})
 
     # ---- events -----------------------------------------------------
     def handle_message(self, topic: str, event: dict, received_at: Optional[float] = None) -> None:
@@ -293,6 +331,10 @@ class Bot:
         except Exception as exc:               # a bad event must not kill the loop
             self.log("event error", exc)
             self._d("record_event", "ERROR", f"event error: {exc}")
+        try:
+            self.flush_pending_buys()          # the timer also does this; whichever comes first
+        except Exception as exc:
+            self.log("pending buy error", exc)
 
     def _on_preflight(self, event: dict) -> None:
         seq = preflight_seq(event)
@@ -328,6 +370,10 @@ class Bot:
         prev = self._last_date.get(ticker)
         if date is not None and prev == date:
             return                                   # duplicate delivery
+        waiting = self._pending_buys.get(ticker)
+        if waiting is not None and waiting[2] != date:
+            del self._pending_buys[ticker]           # next day began first: never buy at a stale close
+            self.log("  pending BUY", ticker, waiting[2], "dropped: the next day started before it was sent")
         if date is not None and prev is not None and date < prev:
             self._reset_ticker(ticker)               # sandbox loop restarted at Day 1
         if date is not None:
@@ -372,6 +418,11 @@ class Bot:
         self._d("record_event", "SIGNAL", f"{signal.action} {signal.quantity} {ticker} @ {close}",
                 ticker=ticker, reason=signal.reason, simulated_date=date)
         self.refresh_stage()
+        wait = getattr(self.strategy, "wait_for_news_s", 0.0)
+        if signal.action == "BUY" and wait and getattr(self.strategy, "news", None) is not None:
+            self._pending_buys[ticker] = (signal, float(close), date, received_at)
+            self.log(f"  BUY {signal.quantity} {ticker} waits {wait:.1f}s for today's headlines")
+            return
         self._execute(signal, float(close), date, received_at)
 
     def _record_equity(self, date: Optional[str]) -> None:
@@ -621,15 +672,19 @@ def run(dashboard: bool = False) -> None:
             server.stop()
 
 
-def start_resync_timer(bot: "Bot", interval: float = 1.0) -> threading.Thread:
-    """Re-read the exchange portfolio when due even while no Kafka message arrives."""
+TIMER_S = 0.1                 # timer tick: sends news-gated BUYs ~0.5-0.6 s after the prices
+
+
+def start_resync_timer(bot: "Bot", interval: float = TIMER_S) -> threading.Thread:
+    """Send news-gated BUYs on time and re-read the exchange when due, even while no Kafka
+    message arrives."""
     def loop():
         while True:
             time.sleep(interval)
             try:
-                bot.resync_if_due()
+                bot.on_timer()
             except Exception as exc:                  # never let the timer die silently
-                bot.log("resync timer error", exc)
+                bot.log("timer error", exc)
 
     thread = threading.Thread(target=loop, name="portfolio-resync", daemon=True)
     thread.start()

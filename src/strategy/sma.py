@@ -66,3 +66,22 @@ def sma_pro():
     strat = SMAStrategy(notional=75_000, max_position_value=150_000, name="sma_pro")
     strat.tax_harvest = True
     return strat
+
+
+NEWS_WAIT_S = 0.5        # headlines arrive ~150 ms after the day's prices; the window is ~3 s
+NEWS_LOOKBACK_DAYS = 3
+NEWS_VETO_SCORE = -2.0
+
+
+def sma_news():
+    """sma_pro plus a news veto. A BUY waits NEWS_WAIT_S for that day's headlines (still filled
+    at that day's close) and is skipped if the stock's news over the last 3 days scores -2 or
+    worse: a breakout on bad news tends to fail. Sells are never delayed or blocked.
+    500-day replay: +34% vs +28% for sma_pro, better in both halves, beats 40/40 placebo runs
+    with the headlines moved to the wrong stock or date (docs/STRATEGY_EVAL.md)."""
+    from src.news.filter import NewsFilter
+    strat = sma_pro()
+    strat.name = "sma_news"
+    strat.news = NewsFilter(lookback_days=NEWS_LOOKBACK_DAYS, veto_threshold=NEWS_VETO_SCORE)
+    strat.wait_for_news_s = NEWS_WAIT_S
+    return strat

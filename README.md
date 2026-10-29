@@ -75,6 +75,7 @@ Dashboard (127.0.0.1): status, positions, orders, journal, tax, evidence, Start/
 | id | status | summary |
 |---|---|---|
 | `sma_pro` | **default, chosen** | SMA8 ±1.5% band, ₹75k per trade, ₹1.5L per-ticker cap, year-end tax-loss harvesting |
+| `sma_news` | passed Step 2 test | `sma_pro` + news veto: a BUY waits 0.5 s for the day's headlines and is skipped if the last 3 days score ≤ −2. 500 days: +34.4% vs +28.8% |
 | `sma_band` | baseline | the original bot's rule exactly (₹50k per trade, ₹1L cap) |
 | `ensemble`, `mean_reversion`, `trend_pullback`, `laggard_reversion` | too weak | +0–1% over 500 days |
 | `breakout`, `relative_strength`, `adaptive` | rejected | lost money or near zero; trends reverse in this data |

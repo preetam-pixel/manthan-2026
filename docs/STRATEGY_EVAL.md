@@ -99,3 +99,45 @@ sma_pro +19.5% (DD 9.0%); removing any other single stock hurts less. All five 1
 **Conclusion.** No rule change beat the original SMA8 ±1.5% band on every check; each one that helped in one
 half hurt in the other. Size is the only reliable dial, and it moves return and drawdown together (Sharpe ≈ 1.1
 at every size). We keep the rule and choose size by the drawdown we accept.
+
+## Step 2: news in trading decisions (2026-10-30)
+Question: can headlines improve `sma_pro`? Exchange timing (problem statement): prices at T, headlines at
+T+150 ms, orders until the next day ~3 s later, all filled at that day's close. So a decision can use the
+day's own headlines and still trade at the day's close. 95% of recorded headlines arrive just after the
+day's prices.
+
+**News alone predicts nothing.** Daily news score vs the stock's return over the next 1/3/5/10 days, net of
+the market: correlation -0.012 / -0.006 / -0.017 / -0.025 over ~2,900 stock-days; no sentiment bucket is
+consistent across horizons and halves.
+
+**But bad news on a breakout day predicts the breakout failing.** Replay of `sma_pro` + one news rule each:
+
+| rule (on top of sma_pro) | 500 days | max DD | ret/DD H1 / H2 | no PLNX | Step 1 rule |
+|---|---|---|---|---|---|
+| none (sma_pro) | +28.2% | 10.0% | 2.38 / 0.47 | +19.5% | — |
+| skip BUY if last 3 days of news <= -2 | **+34.3%** | 9.7% | 2.69 / 1.34 | +25.2% | pass |
+| skip BUY if last 3 days <= -1 | +31.7% | 8.9% | 2.60 / 1.40 | +22.1% | pass |
+| skip BUY if last 5 days <= -2 | +33.4% | 9.5% | 2.68 / 1.30 | +24.3% | pass |
+| skip BUY on busy news days (4+ headlines) | +28.3% | 9.8% | 2.49 / 0.95 | +19.5% | pass (no gain) |
+| sell on bad news today (<= -2 / <= -1) | +26.8% / +25.0% | 10.0% | worse H1 | lower | fail |
+| 1.5x size on good news (+1 / +2) | +29.3% / +28.5% | 10.8% | worse H2 / H1 | lower | fail |
+| enter early (above SMA, below band) on good news | +27.6% / +27.4% | 10.4% | worse | lower | fail |
+
+Checks on the veto (threshold -2, 3 days):
+- **Needs the day's own headlines:** +34.3% vs +29.3% using only news up to the day before. Live, a BUY waits
+  0.5 s for the headlines; sells never wait.
+- **Not one lucky trade:** 38 skipped buys across 9 stocks; 5 days later the median one was down 2.5%
+  (63% negative).
+- **Placebo:** the same headlines moved to a random stock (20 runs) or a shifted date (20 runs) give
+  +21% to +31% (median +28%, i.e. no effect); the real veto beat all 40.
+
+**Same result through the real bot code** (`py -m scripts.replay_bot data/stream_<t>.jsonl`: `src.app.Bot`,
+simulated clock, prices at T, headlines at T+150 ms, 0.1 s timer, offline exchange):
+
+| | return | max DD | ret/DD | H1 / H2 ret/DD | 100-day windows | no PLNX | orders | slowest order |
+|---|---|---|---|---|---|---|---|---|
+| `sma_pro` | +28.8% | 10.3% | 2.78 | 2.28 / 0.47 | +7.0 +15.7 +1.1 +1.5 +5.6 | +20.4% | 548 | at once |
+| `sma_news` | **+34.4%** | 10.0% | **3.44** | 2.58 / **1.94** | +7.9 +16.8 +1.7 +3.7 +6.5 | **+25.3%** | 508 | 0.55 s |
+
+This corrects the earlier note that a news veto lowered returns: that version only saw headlines from before
+the day's prices, used a different strategy, and ran on the 275-day sample.

@@ -75,14 +75,20 @@ Robustness of `sma_pro` (docs/STRATEGY_EVAL.md): positive in both halves and all
 Caveat: this account mixes several bot sessions and strategies run tonight (and resets when the sandbox loop
 restarts), so it is a health check, not a clean comparison. Use Baseline 1 to compare strategies.
 
+## Results against this baseline
+
+| Step | Change | 500-day replay (real bot code) | Rule |
+|---|---|---|---|
+| 2 | `sma_news`: skip a BUY when the stock's last 3 days of news score <= -2 | +34.4% vs +28.8%, DD 10.0% vs 10.3%, better in both halves, all windows positive, +25.3% without PLNX | pass |
+
 ## Rule for Steps 2-4
 
 A change goes live only if, on the replay above, it beats `sma_pro` on return per unit of drawdown in
 both halves, keeps all five 100-day windows positive, and still holds with PLNX removed.
 Earlier results to keep in mind (docs/STRATEGY_EVAL.md):
 
-- **News:** across 8,125 headlines, sentiment did not predict next-day returns (correlation -0.018, every |t| < 2).
-  A news veto and news-driven trades both lowered returns.
+- **News:** on its own, sentiment does not predict returns (correlation about -0.01 to -0.03 at 1-10 days).
+  Used as a veto on breakout buys with the day's own headlines, it passes (Step 2 above).
 - **Confirmation:** waiting for 2 closes above the band helped at SMA8 ±1.5% but hurt at neighbouring settings.
 - **Risk controls already in place:** per-stock cap, cash check, no duplicate or in-flight orders, sell ≤ holdings,
   fresh-data check, trading only while the simulation runs, uncertain orders frozen until reconciled.
