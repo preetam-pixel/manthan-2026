@@ -80,6 +80,7 @@ restarts), so it is a health check, not a clean comparison. Use Baseline 1 to co
 | Step | Change | 500-day replay (real bot code) | Rule |
 |---|---|---|---|
 | 2 | `sma_news`: skip a BUY when the stock's last 3 days of news score <= -2 | +34.4% vs +28.8%, DD 10.0% vs 10.3%, better in both halves, all windows positive, +25.3% without PLNX | pass |
+| 3 | 14 entry/exit ideas on top of `sma_news` (confirmation, earlier exits, trailing stops, trend, volume, up day, cooldown, second-buy rules) | none beats +34.4% robustly; a 6% trailing stop passed but failed at 5% and 7% | no change |
 
 ## Rule for Steps 2-4
 

@@ -141,3 +141,25 @@ simulated clock, prices at T, headlines at T+150 ms, 0.1 s timer, offline exchan
 
 This corrects the earlier note that a news veto lowered returns: that version only saw headlines from before
 the day's prices, used a different strategy, and ran on the 275-day sample.
+
+## Step 3: entry and exit rules on top of sma_news (2026-10-30)
+Every idea run through the real bot code (`py -m scripts.entry_exit_study data/stream_<t>.jsonl`), news veto
+and 0.5 s wait included, judged by the Step 1 rule against `sma_news` (+34.4%, DD 10.0%, ret/DD 2.58 / 1.94).
+
+| change | 500 days | max DD | ret/DD H1 / H2 | worst 100-day window | no PLNX | rule |
+|---|---|---|---|---|---|---|
+| buy only after 2 closes above the band | +26.1% | 6.9% | 2.80 / 1.39 | +0.4% | +18.2% | fail (H2) |
+| sell at the SMA (not 1.5% below) | +32.5% | 8.0% | 3.28 / 1.32 | +2.8% | +25.5% | fail (H2) |
+| sell 0.75% below the SMA | +32.6% | 9.7% | 2.74 / 0.92 | +1.6% | +23.9% | fail (H2) |
+| trailing stop 6% | +35.1% | 9.6% | 2.71 / 2.01 | +2.7% | +26.5% | pass, **but** |
+| trailing stop 4% / 5% / 7% / 8% / 10% | +32.0 / +34.1 / +32.4 / +34.7 / +34.1% | 9.6-10.1% | each worse in a half | | | fail |
+| trailing stop 5-7% without instant re-buy | +33.9 / +33.2 / +32.2% | 9.7-10.0% | worse H1 | | | fail |
+| buy only above SMA20 / SMA50 | +24.6% / +15.4% | 7.6% / 8.1% | worse H2 | -2.4% / -1.5% | lower | fail |
+| buy only on volume >= 1x / 1.5x the 20-day average | +22.8% / +8.3% | 7.3% / 4.8% | worse H2 | -0.7% | lower | fail |
+| buy only on an up day | +30.7% | 10.1% | 2.30 / 1.72 | -0.2% | +23.1% | fail |
+| no new buys 3 / 5 days after a losing exit | +29.9% / +27.4% | 10.5% | worse | | lower | fail |
+| second buy only if +2% in profit (= one buy per stock) | +26.1% | 8.1% | 2.50 / 1.34 | +1.5% | +18.2% | fail |
+
+**Decision: no change.** The only pass, a 6% trailing stop (+0.7 pp), fails at 5% and 7% and with the
+re-buy fixed, so it is luck at one setting, not an edge. Filters that wait for more confirmation (2 closes,
+trend, volume, up day) cut drawdown but cut return more and weaken the second half. `sma_news` stays live.

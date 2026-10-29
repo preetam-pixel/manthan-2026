@@ -22,7 +22,8 @@ NEWS_AT_S = 0.15       # headlines arrive ~150 ms after the prices
 TIMER_S = 0.1
 
 
-def run(history: dict, news: list, strategy: str, days: tuple = None, drop: str = None) -> dict:
+def run(history: dict, news: list, strategy, days: tuple = None, drop: str = None) -> dict:
+    """``strategy``: a registered name, or a factory returning a strategy object (for research)."""
     dates = sorted({b["date"] for bars in history.values() for b in bars})
     if days:
         dates = dates[days[0]:days[1]]
@@ -35,8 +36,9 @@ def run(history: dict, news: list, strategy: str, days: tuple = None, drop: str 
 
     now = [0.0]
     api = SimulatedAPI(tickers, total_days=len(dates), interval_seconds=DAY_S)
-    bot = Bot(api, strategy=create(strategy), log=lambda *a: None, clock=lambda: now[0],
-              warm_start=False, strategy_name=strategy, journal=DecisionJournal())
+    strat = create(strategy) if isinstance(strategy, str) else strategy()
+    bot = Bot(api, strategy=strat, log=lambda *a: None, clock=lambda: now[0],
+              warm_start=False, strategy_name=getattr(strat, "name", str(strategy)), journal=DecisionJournal())
     bot.startup()
     peak, max_dd, wealth = api.cash, 0.0, api.cash
     for i, d in enumerate(dates):
@@ -79,7 +81,7 @@ def compare(history: dict, news: list, strategies: list) -> list:
     for s in strategies:
         full = run(history, news, s)
         hs = [run(history, news, s, days=h) for h in halves]
-        out.append({"strategy": s, "full": full,
+        out.append({"strategy": s if isinstance(s, str) else getattr(s, "__name__", "custom"), "full": full,
                     "halves_return_per_dd": [h["return_pct"] / h["max_dd_pct"] if h["max_dd_pct"] else None for h in hs],
                     "windows_return": [run(history, news, s, days=w)["return_pct"] for w in windows],
                     "without_PLNX_return": run(history, news, s, drop="PLNX")["return_pct"]})
