@@ -9,6 +9,7 @@ Safety:
 import json
 import mimetypes
 import os
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -238,10 +239,21 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(200, {"bot": bot_view(bot, dash)})
 
 
+class _ExclusiveServer(ThreadingHTTPServer):
+    """Refuse to share the port: on Windows, SO_REUSEADDR would let two dashboards bind it."""
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 class DashboardServer:
     def __init__(self, bot, dash, static_dir: str, port: int = 8080, host: str = "127.0.0.1",
                  evidence_path: Optional[str] = None):
-        self.httpd = ThreadingHTTPServer((host, port), _Handler)
+        self.httpd = _ExclusiveServer((host, port), _Handler)
         self.port = self.httpd.server_address[1]
         names = (f"127.0.0.1:{self.port}", f"localhost:{self.port}")
         if evidence_path is None:

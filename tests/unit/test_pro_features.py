@@ -214,3 +214,37 @@ def test_consume_forever_backoff_is_capped():
     with pytest.raises(KeyboardInterrupt):
         consume_forever(bot, make, sleep=sleeps.append, max_backoff=15.0)
     assert sleeps[:5] == [1.0, 2.0, 4.0, 8.0, 15.0] and max(sleeps) == 15.0
+
+
+# ---- one bot per computer ---------------------------------------------------------------
+def test_second_instance_is_refused_until_the_first_exits():
+    from src.app import acquire_single_instance
+    first = acquire_single_instance(port=47999)
+    assert first is not None
+    try:
+        assert acquire_single_instance(port=47999) is None
+    finally:
+        first.close()
+    again = acquire_single_instance(port=47999)
+    assert again is not None
+    again.close()
+
+
+def test_dashboard_port_cannot_be_shared():
+    from src.dashboard.server import DashboardServer
+    from src.dashboard.state import DashboardState
+    bot, _ = bot_with(SMAStrategy())
+    a = DashboardServer(bot, DashboardState(), ".", port=0).start()
+    try:
+        with pytest.raises(OSError):
+            DashboardServer(bot, DashboardState(), ".", port=a.port)
+    finally:
+        a.stop()
+
+
+def test_exchange_cost_basis_used_for_existing_holdings():
+    api = FakeAPI(holdings=[{"ticker": "BBB", "quantity": 40, "avg_buy_price": 90.0, "is_short": False}])
+    bot, _ = bot_with(SMAStrategy(), api=api)
+    assert bot.portfolio.avg_price == {"BBB": 90.0}
+    bot.handle_message("market.ticks", tick("BBB", 100.0, "2026-01-11"))
+    assert bot.tax.avg_cost("BBB") == pytest.approx(90.0)

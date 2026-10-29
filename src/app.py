@@ -5,6 +5,7 @@ fake events and a fake API; Kafka is only touched in ``run``.
 """
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -309,7 +310,8 @@ class Bot:
         ts = _event_time(event)
         held = self.portfolio.quantity(ticker)
         if self.tax.quantity(ticker) != held:
-            self.tax.sync_quantity(ticker, held, float(close), date)   # positions we did not open here
+            basis = self.portfolio.avg_price.get(ticker) or float(close)
+            self.tax.sync_quantity(ticker, held, basis, date)   # positions we did not open here
         if hasattr(self.strategy, "on_bar"):
             signal = self.strategy.on_bar(ticker, tick, held, ts)
         else:
@@ -474,8 +476,34 @@ def _safe_json(raw: bytes):
         return None   # malformed event: handle_message ignores non-dicts
 
 
+INSTANCE_LOCK_PORT = 47913
+
+
+def acquire_single_instance(port: int = INSTANCE_LOCK_PORT) -> Optional[socket.socket]:
+    """Hold an exclusive localhost port for the life of the bot.
+
+    Two bots on one account split the Kafka partitions between them and trade the same
+    cash, which double-buys and hides orders from the dashboard. Returns None if another
+    instance already holds the lock.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):            # Windows: forbid port sharing
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        sock.bind(("127.0.0.1", port))
+        sock.listen(1)
+    except OSError:
+        sock.close()
+        return None
+    return sock
+
+
 def run(dashboard: bool = False) -> None:
     _load_dotenv()
+    instance_lock = acquire_single_instance(int(os.environ.get("INSTANCE_LOCK_PORT", INSTANCE_LOCK_PORT)))
+    if instance_lock is None:
+        raise SystemExit("Another bot is already running on this computer. Stop it first (Ctrl+C in its "
+                         "window): two bots would split the Kafka stream and trade the same account.")
     try:
         api = SimulationAPIClient()
     except ValueError as exc:
@@ -514,7 +542,11 @@ def run(dashboard: bool = False) -> None:
               journal=DecisionJournal(journal_path))
     if dash is not None:
         static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
-        server = DashboardServer(bot, dash, static_dir, int(os.environ.get("DASHBOARD_PORT", "8080"))).start()
+        port = int(os.environ.get("DASHBOARD_PORT", "8080"))
+        try:
+            server = DashboardServer(bot, dash, static_dir, port).start()
+        except OSError:
+            raise SystemExit(f"Dashboard port {port} is already in use. Close the other program or set DASHBOARD_PORT.")
         _log(f"Dashboard: {server.url}  (trading is {'ON' if trading else 'STOPPED - press Start in the dashboard'})")
     bot.startup()
     _log(f"Strategy: {strategy_name}  |  decision journal: {journal_path}")

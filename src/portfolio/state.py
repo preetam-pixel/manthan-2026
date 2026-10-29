@@ -16,6 +16,7 @@ def _number(value) -> Optional[float]:
 class PortfolioState:
     def __init__(self):
         self.held: dict[str, int] = {}
+        self.avg_price: dict[str, float] = {}       # exchange cost basis (avg_buy_price), when provided
         self.cash: Optional[float] = None
         self.synced = False
         self.uncertain: set[str] = set()      # tickers with an unresolved order
@@ -33,6 +34,11 @@ class PortfolioState:
                 continue
             holdings[ticker] = 0 if h.get("is_short") else max(qty, 0)
         self.held = holdings
+        self.avg_price = {}
+        for h in portfolio.get("holdings") or []:
+            price = _number(h.get("avg_buy_price", h.get("average_buy_price")))
+            if h.get("ticker") and price and not h.get("is_short"):
+                self.avg_price[h["ticker"]] = price
         for key in ("cash", "available_cash", "cash_balance"):
             cash = _number(portfolio.get(key))
             if cash is not None:
