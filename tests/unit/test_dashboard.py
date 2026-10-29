@@ -251,3 +251,12 @@ def test_demo_exchange_counts_days_once_even_when_ticks_interleave():
     assert api.days_done == 2 and api.get_stage()["current_date"] == "2024-01-02"
     assert api.submit_order("A", "BUY", 5).outcome == "FILLED" and api.holdings["A"] == 5
     assert api.submit_order("A", "SELL", 9).code == "NO_POSITION"
+
+
+def test_strategy_list_shows_the_active_sizing(rig):
+    bot, dash, api, server = rig
+    bot.strategy.notional, bot.strategy.max_position_value = 75_000, 75_000
+    items = {s["id"]: s for s in call(server, "GET", "/strategies")[1]}
+    assert "Rs 75,000 per buy" in items["sma_band"]["description"]
+    assert "one buy per stock" in items["sma_band"]["description"]
+    assert "Active sizing" not in items["sma_pro"]["description"]

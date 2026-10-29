@@ -112,10 +112,16 @@ def tax_view(bot, dash) -> dict:
     }
 
 
-def strategies_view() -> list[dict]:
+def strategies_view(bot=None) -> list[dict]:
     out = []
+    active = getattr(bot, "strategy_name", None)
     for sid in STRATEGIES:
         name, desc, recommended = STRATEGY_INFO.get(sid, (sid, "", True))
+        strat = getattr(bot, "strategy", None)
+        if sid == active and hasattr(strat, "notional"):
+            one_buy = strat.max_position_value <= strat.notional
+            desc = (f"{desc} Active sizing: Rs {strat.notional:,.0f} per buy, Rs {strat.max_position_value:,.0f} "
+                    f"max per stock{' (one buy per stock)' if one_buy else ''}.")
         out.append({"id": sid, "name": name, "description": desc, "available": True,
                     "recommended": recommended})
     return out
@@ -179,7 +185,7 @@ class _Handler(BaseHTTPRequestHandler):
             if route == "/orders":
                 return self._json(200, dash.orders_view())
             if route == "/strategies":
-                return self._json(200, strategies_view())
+                return self._json(200, strategies_view(bot))
             if route == "/series":
                 return self._json(200, dash.series_view())
             if route == "/news":
