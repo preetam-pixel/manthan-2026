@@ -72,6 +72,8 @@ class Bot:
     def sync_portfolio(self) -> bool:
         try:
             self.portfolio.sync(self.api.get_portfolio())
+            if hasattr(self.strategy, "sync_holdings"):
+                self.strategy.sync_holdings(dict(self.portfolio.held))
             self.log("Synced holdings:", dict(self.portfolio.held), "cash:", self.portfolio.cash)
             return True
         except Exception as exc:  # network / schema problems: stay un-synced, risk blocks orders
@@ -105,7 +107,8 @@ class Bot:
             if ticker in self._last_date:
                 continue  # live ticks already seen
             try:
-                response = self.api.get_history(ticker, HISTORY_DAYS)
+                response = self.api.get_history(
+                    ticker, getattr(self.strategy, "history_days", HISTORY_DAYS))
                 if hasattr(self.strategy, "warm_start_bars"):
                     self.strategy.warm_start_bars(ticker, parse_history_bars(response))
                 else:
@@ -144,6 +147,11 @@ class Bot:
             elif topic == TOPIC_NEWS:
                 if (event.get("data") or {}).get("ticker"):      # skip empty filler events
                     self.log(format_news(event))   # informational only; never trades
+                    news = getattr(self.strategy, "news", None)
+                    if news is not None:                         # entry veto only, never a trade trigger
+                        score = news.update(event)
+                        if score is not None:
+                            self.log(f"  news risk score {score:+.0f} (entries vetoed at <= {news.veto_threshold:g})")
         except Exception as exc:               # a bad event must not kill the loop
             self.log("event error", exc)
 
