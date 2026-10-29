@@ -39,4 +39,4 @@ py -m scripts.record_stream --seconds 600   # or for a fixed time
 py -m scripts.record_stream --export data/stream_X.jsonl history.json news.json
 py -m scripts.evaluate_strategies history.json
 ```
-Recordings are gitignored (`data/`). The sandbox loops the same days, so about 83 minutes captures a full 500-day loop; the loader keeps one loop (`loop_count`) so repeated dates are never mixed.
+Recordings are gitignored (`data/`). The sandbox loops the same days, so about 83 minutes captures a full 500-day loop even if you start mid-loop. The loader merges loops (first value wins) and warns if the same date ever has a different close.

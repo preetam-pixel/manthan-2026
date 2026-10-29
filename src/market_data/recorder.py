@@ -42,33 +42,41 @@ def read_records(path: str) -> Iterable[dict]:
                 yield rec
 
 
-def load_stream(path: str, loop: Optional[int] = None):
+def load_stream(path: str, loop: Optional[int] = None, report: Optional[dict] = None):
     """(history, news) from a recording.
 
     history: {ticker: [bar, ...]} oldest first, one bar per (ticker, date).
-    news:    [news_flash event, ...] in arrival order.
-    The sandbox replays the same days in loops; ``loop`` selects one loop_count
-    (default: the first loop seen) so repeated dates are not mixed together.
+    news:    [news_flash event, ...] in arrival order, one per (ticker, date, headline).
+    The sandbox replays the same days in loops. By default every loop is merged
+    (first value wins) so a recording that starts mid-loop still covers all days;
+    pass ``loop`` to use a single loop_count instead. If ``report`` is given it is
+    filled with ``conflicts``: how many bars reappeared with a different close
+    (non-zero means the loops are NOT identical and merging is unsafe).
     """
     history: dict[str, dict[str, dict]] = {}
-    news = []
-    chosen = loop
+    news, seen_news = [], set()
+    conflicts = 0
     for rec in read_records(path):
         ev = rec["event"]
-        sandbox = ev.get("sandbox") or {}
-        loop_no = sandbox.get("loop_count")
-        if chosen is None and loop_no is not None:
-            chosen = loop_no
-        if loop_no is not None and chosen is not None and loop_no != chosen:
+        loop_no = (ev.get("sandbox") or {}).get("loop_count")
+        if loop is not None and loop_no != loop:
             continue
         data = ev.get("data") or {}
         if rec.get("topic") == TOPIC_TICKS and event_type(ev) == PRICE_EVENT:
             date, close = ev.get("simulated_date") or data.get("date"), data.get("close")
             if date and isinstance(close, (int, float)) and not isinstance(close, bool) and close > 0:
-                history.setdefault(data["ticker"], {})[date] = {
-                    "date": date, "open": data.get("open"), "high": data.get("high"),
-                    "low": data.get("low"), "close": close, "volume": data.get("volume")}
+                bars = history.setdefault(data["ticker"], {})
+                if date in bars:
+                    conflicts += bars[date]["close"] != close
+                    continue
+                bars[date] = {"date": date, "open": data.get("open"), "high": data.get("high"),
+                              "low": data.get("low"), "close": close, "volume": data.get("volume")}
         elif rec.get("topic") == TOPIC_NEWS and event_type(ev) == NEWS_EVENT:
-            news.append(ev)
+            key = (data.get("ticker"), ev.get("simulated_date"), data.get("headline"))
+            if key not in seen_news:
+                seen_news.add(key)
+                news.append(ev)
+    if report is not None:
+        report["conflicts"] = conflicts
     ordered = {t: [bars[d] for d in sorted(bars)] for t, bars in history.items()}
     return ordered, news

@@ -20,7 +20,11 @@ from src.market_data.recorder import load_stream, to_record
 
 
 def export(src: str, history_out: str, news_out: str) -> None:
-    history, news = load_stream(src)
+    report: dict = {}
+    history, news = load_stream(src, report=report)
+    if report.get("conflicts"):
+        print(f"WARNING: {report['conflicts']} bars reappeared with a different close; "
+              f"loops are not identical, so merging them is unsafe (use load_stream(loop=N)).")
     json.dump(history, open(history_out, "w", encoding="utf-8"))
     json.dump(news, open(news_out, "w", encoding="utf-8"))
     days = max((len(v) for v in history.values()), default=0)
