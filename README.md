@@ -16,3 +16,17 @@ pytest
 ```
 
 `python -m src.app` is a safe stub. Do not point it at the simulator until reviewed.
+
+## Update: wired runtime
+`python -m src.app --live` runs the full loop (Kafka -> SMA strategy -> risk gate -> execution -> reconciliation). Without `--live` it only prints a hint. Tokens come from `BOT_ACCESS_TOKEN` or `TEAM_JWT_TOKEN`.
+Status: unit-tested with fakes only (`pytest`); **not yet run against the live simulator or Kafka**. Do a sandbox run during the development stage before relying on it.
+
+## Strategies
+Select with the `STRATEGY` env var (default `sma_band`, the original SMA8 +/-1.5% rule).
+- `sma_band` — baseline, unchanged.
+- `adaptive` — volatility-scaled band (ATR), volume confirmation, market-breadth filter, chaos-regime filter, friction (brokerage + DP) check, risk-based sizing, ATR trailing stop. Long-only. **Not validated on real data yet**; compare with `src.strategy.backtest.compare` before using it live.
+
+All strategies pass through the same risk gate. In the live run (stage `simulation`) open longs are closed on the last day (`UNWIND_DAYS`); this never triggers in the looping sandbox. On exit the bot prints a decision-latency summary.
+
+### Disciplined strategies (opt-in via `STRATEGY=`)
+`ensemble` (recommended candidate), `mean_reversion`, `trend_pullback`, `laggard_reversion`; plus `breakout`, `relative_strength` and `adaptive`, which **lost money on the real history and are not recommended**. All share a discipline layer: max 4 open names, volatility-scaled size, 3-bar minimum hold, 3-bar re-entry cooldown, ATR trailing hard stop, breadth and chaos-volatility gates, friction check, and a news veto on entries (never a trade trigger). They need ~41 daily bars of history (warm-started from `/stocks/:ticker/history`, 90 calendar days); if the live run offers no pre-run history they wait ~41 days before trading. See `docs/STRATEGY_EVAL.md` for results and limits.

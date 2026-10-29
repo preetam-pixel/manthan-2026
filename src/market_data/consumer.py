@@ -41,6 +41,17 @@ def parse_history(response: dict) -> list[tuple[str, float]]:
     return out
 
 
+def parse_history_bars(response: dict) -> list[dict]:
+    """Full OHLCV bars, oldest first. Bars without a valid close are dropped."""
+    out = []
+    for bar in (response or {}).get("prices") or []:
+        close = bar.get("close")
+        if bar.get("date") and isinstance(close, (int, float)) and not isinstance(close, bool) and close > 0:
+            out.append({k: bar.get(k) for k in ("date", "open", "high", "low", "close", "volume")})
+    out.sort(key=lambda b: b["date"])
+    return out
+
+
 def normalize_tick(event: dict) -> dict:
     data = event.get("data") or {}
     return {

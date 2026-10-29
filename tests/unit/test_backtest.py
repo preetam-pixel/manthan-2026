@@ -21,9 +21,9 @@ def test_replay_buys_then_sells_with_brokerage():
     actions = [t[2] for t in res["trade_log"]]
     assert actions[0] == "BUY" and "SELL" in actions
     assert res["open_positions"] == {}
-    # round trip: bought at 102, sold at 95, two brokerage charges
+    # round trip: bought at 102, sold at 95, two brokerage charges + DP charge on the sell
     qty = res["trade_log"][0][3]
-    assert res["final_equity"] == pytest.approx(1_000_000 + qty * (95 - 102) - 40)
+    assert res["final_equity"] == pytest.approx(1_000_000 + qty * (95 - 102) - 40 - 15.34)
 
 
 def test_no_trades_on_flat_series():

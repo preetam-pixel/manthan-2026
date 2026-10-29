@@ -17,3 +17,21 @@ Transcribed from user-provided handoff; not independently tested here.
 - Rejections noted: simulation not live/paused, inactive ticker, unverified team, bad quantity, insufficient cash/margin
 
 Recheck organizer docs if changed.
+
+## Added from the official problem statement PDF (Hackathon_Problem_Statement.pdf)
+Source: organizer PDF, not independently tested against the live gateway.
+
+- News event type is `news_flash` (topic `market.news`), with `simulated_date` and `data:{ticker, headline, description, date}`.
+- `GET /api/v1/stage` is public: `{stage: development|ready|preflight|simulation, status: IDLE|RUNNING|PAUSED|COMPLETED, days_completed, total_days, current_date}`. Orders only when `stage=="simulation"` and `status=="RUNNING"`.
+- `GET /api/v1/stocks/:ticker/history?days=N` -> `{prices:[{date, open, high, low, close, volume}]}`; only bars strictly before the current simulation date (anti-lookahead).
+- Order quantity: whole number 1..1,000,000. Optional `date` = current simulated date (used to measure reaction speed). All orders fill at the day's close.
+- Rejection codes: ACCOUNT_NOT_VERIFIED, SIMULATION_NOT_RUNNING, INSUFFICIENT_CAPITAL, INSUFFICIENT_MARGIN, ACCOUNT_BLOCKED, NO_SHORT_POSITION, INVALID_TICKER, INVALID_QUANTITY, RATE_LIMITED.
+- Rate limit 120 requests/min; HTTP 429 puts the token in a 30 s penalty box. Client self-limits to 100/min.
+- Costs: flat Rs 20 brokerage per order, Rs 15.34 DP charge on delivery sells, STCG 15% / LTCG 10%.
+- Decision window ~3-4 s per simulated day. Sandbox loops back to Day 1 at dataset end; the live run is a single pass.
+- Starting capital Rs 10,00,000.
+
+## Not verified (code reads these defensively)
+- `GET /api/v1/portfolio` and `/portfolio/cash` exact field names (cash read from `cash`/`available_cash`/`cash_balance`; unknown cash is never treated as zero).
+- `GET /api/v1/orders` schema (not used; uncertain orders are reconciled from the portfolio instead).
+- Exact order error body shape (code read from `error` or `code`).

@@ -1,0 +1,353 @@
+import pytest
+from src.execution.client import APIError, OrderResult
+from src.app import Bot
+
+
+class FakeAPI:
+    def __init__(self, stage=("simulation", "RUNNING"), order=None):
+        self.stage = stage
+        self.order = order or OrderResult("FILLED", body={"execution_price": 102.0})
+        self.heartbeats, self.orders, self.history_calls = [], [], []
+        self.portfolio = {"holdings": [], "cash": 1_000_000.0}
+        self.fail_heartbeat = False
+        self.fail_portfolio = False
+
+    def acknowledge_preflight(self, seq):
+        if self.fail_heartbeat:
+            raise APIError("bad seq")
+        self.heartbeats.append(seq)
+
+    def get_stocks(self):
+        return ["AAA", "BBB"]
+
+    def get_stage(self):
+        return {"stage": self.stage[0], "status": self.stage[1]}
+
+    def get_portfolio(self):
+        if self.fail_portfolio:
+            raise APIError("down")
+        return self.portfolio
+
+    def get_history(self, ticker, days):
+        self.history_calls.append(ticker)
+        return {"prices": [{"date": f"2021-01-{i:02d}", "close": 100.0} for i in range(1, 11)]}
+
+    def submit_order(self, ticker, action, qty, date=None):
+        self.orders.append((ticker, action, qty, date))
+        return self.order
+
+
+def tick(ticker, close, date):
+    return {"event_type": "price_tick", "timestamp": "2026-10-19T10:00:00.000Z",
+            "simulated_date": date, "data": {"ticker": ticker, "close": close}}
+
+
+def make_bot(api=None, **kw):
+    api = api or FakeAPI()
+    logs = []
+    bot = Bot(api, log=lambda *a: logs.append(" ".join(map(str, a))), clock=lambda: 0.0, **kw)
+    bot.api_logs = logs
+    return bot, api
+
+
+def started(api=None, **kw):
+    bot, api = make_bot(api, **kw)
+    bot.handle_message("market.ticks", {"event_type": "preflight_tick", "seq": 1, "data": {"seq": 1}})
+    return bot, api
+
+
+def test_preflight_acks_exact_seq_loads_universe_and_syncs():
+    bot, api = started()
+    assert api.heartbeats == [1]
+    assert bot.universe == {"AAA", "BBB"} and bot.portfolio.synced
+
+
+def test_heartbeat_error_does_not_crash_and_still_loads_universe():
+    api = FakeAPI()
+    api.fail_heartbeat = True
+    bot, _ = started(api)
+    assert api.heartbeats == [] and bot.universe
+
+
+def test_preflight_without_seq_is_ignored_safely():
+    bot, api = make_bot()
+    bot.handle_message("market.ticks", {"event_type": "preflight_tick"})
+    assert api.heartbeats == []
+
+
+def test_warm_start_allows_first_signal_without_eight_live_ticks():
+    bot, api = started()
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
+    assert api.orders[0][3] == "2021-02-01"       # date passed for latency measurement
+    assert bot.portfolio.quantity("AAA") == int(50_000 // 103.0)
+
+
+def test_cold_start_needs_eight_ticks():
+    bot, api = started(warm_start=False)
+    for i in range(8):
+        bot.handle_message("market.ticks", tick("AAA", 100.0, f"2021-01-{i + 1:02d}"))
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert len(api.orders) == 1
+
+
+def test_sell_after_buy_closes_whole_position():
+    bot, api = started()
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    bot.handle_message("market.ticks", tick("AAA", 80.0, "2021-02-02"))
+    assert api.orders[-1][1] == "SELL" and bot.portfolio.quantity("AAA") == 0
+
+
+def test_duplicate_tick_delivery_ignored():
+    bot, api = started()
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert len(api.orders) == 1
+
+
+def test_simulation_paused_or_completed_blocks_orders():
+    for status in ("PAUSED", "COMPLETED", "IDLE"):
+        bot, api = started(FakeAPI(stage=("simulation", status)))
+        bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+        assert api.orders == [], status
+
+
+def test_not_simulation_stage_blocks_orders():
+    bot, api = started(FakeAPI(stage=("preflight", "RUNNING")))
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders == []
+
+
+def test_stage_error_blocks_orders():
+    api = FakeAPI()
+    api.get_stage = lambda: (_ for _ in ()).throw(APIError("down"))
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders == []
+
+
+def test_stale_tick_blocks_order():
+    now = [0.0]
+    api = FakeAPI()
+    bot = Bot(api, log=lambda *a: None, clock=lambda: now[0])
+    bot.handle_message("market.ticks", {"event_type": "preflight_tick", "seq": 1})
+    now[0] = 10.0
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"), received_at=0.0)
+    assert api.orders == []
+
+
+def test_unsynced_portfolio_blocks_orders():
+    api = FakeAPI()
+    api.fail_portfolio = True
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders == []
+
+
+def test_timeout_is_reconciled_and_not_retried_same_day():
+    api = FakeAPI(order=OrderResult("UNCERTAIN", detail="timeout"))
+    bot, _ = started(api)
+    api.portfolio = {"holdings": [{"ticker": "AAA", "quantity": 485}], "cash": 1.0}
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert len(api.orders) == 1
+    assert bot.portfolio.quantity("AAA") == 485          # exchange state adopted
+    assert not bot.portfolio.uncertain
+    bot.handle_message("market.ticks", tick("AAA", 103.5, "2021-02-01"))
+    assert len(api.orders) == 1
+
+
+def test_uncertain_stays_blocked_until_reconcile_succeeds():
+    api = FakeAPI(order=OrderResult("UNCERTAIN"))
+    bot, _ = started(api)
+    api.fail_portfolio = True
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert "AAA" in bot.portfolio.uncertain
+    bot.handle_message("market.ticks", tick("AAA", 110.0, "2021-02-02"))
+    assert len(api.orders) == 1                          # still blocked
+    api.fail_portfolio = False
+    bot.handle_message("market.ticks", tick("AAA", 115.0, "2021-02-03"))
+    assert not bot.portfolio.uncertain
+
+
+def test_rejection_does_not_change_holdings():
+    api = FakeAPI(order=OrderResult("REJECTED", code="INSUFFICIENT_CAPITAL"))
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert bot.portfolio.quantity("AAA") == 0
+
+
+def test_simulation_not_running_rejection_halts():
+    api = FakeAPI(order=OrderResult("REJECTED", code="SIMULATION_NOT_RUNNING"))
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert bot.sim_running is False
+
+
+def test_malformed_events_do_not_crash():
+    bot, api = started()
+    for ev in (None, [], "x", {}, {"event_type": "price_tick"},
+               tick("AAA", None, "d"), tick(None, 1, "d"), tick("AAA", "abc", "d")):
+        bot.handle_message("market.ticks", ev)
+    assert api.orders == []
+
+
+def test_news_is_logged_never_traded():
+    bot, api = started()
+    bot.handle_message("market.news", {"event_type": "news_flash", "data": {
+        "ticker": "AAA", "headline": "Record profit surge", "description": "strong growth"}})
+    assert api.orders == []
+    assert any("NEWS AAA" in line for line in bot.api_logs)
+
+
+def test_date_going_backwards_resets_ticker_history():
+    bot, api = started()
+    bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-06-01"))
+    bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-01-01"))   # sandbox looped
+    assert len(bot.strategy.closes["AAA"]) == 1
+
+
+def test_stage_status_is_case_insensitive():
+    bot, api = started(FakeAPI(stage=("simulation", "running")))
+    assert bot.refresh_stage(force=True) is True
+    bot, api = started(FakeAPI(stage=("development", "running")))
+    assert bot.refresh_stage(force=True) is False
+
+
+def test_trades_without_any_preflight_tick_after_startup():
+    bot, api = make_bot()
+    bot.startup()                                    # sandbox has no preflight ticks
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
+
+
+def test_universe_loaded_lazily_if_startup_failed():
+    bot, api = make_bot()
+    bot.sync_portfolio()                             # universe still unknown
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert bot.universe == {"AAA", "BBB"}
+
+
+def test_tick_log_shows_distance_from_trigger():
+    bot, api = started()
+    bot.handle_message("market.ticks", tick("AAA", 100.5, "2021-02-01"))
+    assert any("vs SMA8" in l and "+0.50%" in l for l in bot.api_logs)
+
+
+def test_dotenv_tolerates_spaces_quotes_and_export(tmp_path, monkeypatch):
+    from src.app import _load_dotenv
+    f = tmp_path / ".env"
+    f.write_text('A_KEY= spaced \nexport B_KEY="quoted"\nC_KEY=\n# D_KEY=x\n', encoding="utf-8")
+    for k in ("A_KEY", "B_KEY", "C_KEY", "D_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    _load_dotenv(str(f))
+    import os
+    assert os.environ["A_KEY"] == "spaced" and os.environ["B_KEY"] == "quoted"
+    assert "C_KEY" not in os.environ and "D_KEY" not in os.environ
+    for k in ("A_KEY", "B_KEY"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_heartbeat_burst_is_throttled_and_failures_retry_next_tick():
+    now = [0.0]
+    api = FakeAPI()
+    bot = Bot(api, log=lambda *a: None, clock=lambda: now[0])
+    pre = lambda n: {"event_type": "preflight_tick", "seq": n, "data": {"seq": n}}
+    for n in range(10):                              # burst inside one second
+        now[0] += 0.1
+        bot.handle_message("market.ticks", pre(n))
+    assert len(api.heartbeats) == 1
+    now[0] += 2.5
+    bot.handle_message("market.ticks", pre(11))
+    assert api.heartbeats[-1] == 11 and len(api.heartbeats) == 2
+    api.fail_heartbeat = True
+    now[0] += 2.5
+    bot.handle_message("market.ticks", pre(12))      # fails, must not mark as acked
+    api.fail_heartbeat = False
+    now[0] += 1.1
+    bot.handle_message("market.ticks", pre(13))      # retried after the 1 s backoff
+    assert api.heartbeats[-1] == 13
+
+
+def test_failed_heartbeat_burst_retries_at_most_once_per_second():
+    now = [0.0]
+    api = FakeAPI()
+    api.fail_heartbeat = True
+    calls = []
+    orig = api.acknowledge_preflight
+    api.acknowledge_preflight = lambda seq: (calls.append(seq), orig(seq))[1]
+    bot = Bot(api, log=lambda *a: None, clock=lambda: now[0])
+    for n in range(50):                              # 50 ticks inside one second
+        now[0] += 0.02
+        bot.handle_message("market.ticks", {"event_type": "preflight_tick", "seq": n})
+    assert len(calls) == 1
+
+
+def test_empty_news_is_not_logged():
+    bot, api = make_bot()
+    bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
+    assert not any("NEWS" in l for l in bot.api_logs)
+
+
+# ---- adaptive strategy, unwind, latency ---------------------------------
+class BarsAPI(FakeAPI):
+    def get_history(self, ticker, days):
+        self.history_calls.append(ticker)
+        return {"prices": [{"date": f"2021-01-{i:02d}", "open": 100.0, "high": 101.0, "low": 99.0,
+                            "close": 100.0, "volume": 1000.0} for i in range(1, 26)]}
+
+
+def bar_tick(ticker, close, date, volume=3000.0):
+    ev = tick(ticker, close, date)
+    ev["data"].update({"open": close, "high": close + 0.5, "low": close - 5.0, "volume": volume})
+    return ev
+
+
+def test_adaptive_strategy_trades_through_bot_and_explains_reason():
+    from src.strategy.adaptive import AdaptiveStrategy
+    api = BarsAPI()
+    bot, _ = started(api, strategy=AdaptiveStrategy())
+    bot.handle_message("market.ticks", bar_tick("AAA", 105.0, "2021-02-01"))
+    assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
+    assert any("ORDER BUY" in l and "vol x3.0" in l for l in bot.api_logs)
+
+
+def test_adaptive_ticker_reset_on_date_going_backwards():
+    from src.strategy.adaptive import AdaptiveStrategy
+    bot, api = started(BarsAPI(), strategy=AdaptiveStrategy())
+    bot.handle_message("market.ticks", bar_tick("AAA", 100.0, "2021-06-01"))
+    bot.handle_message("market.ticks", bar_tick("AAA", 100.0, "2021-01-01"))
+    assert len(bot.strategy.bars["AAA"]) == 1
+
+
+class UnwindAPI(FakeAPI):
+    def __init__(self, stage_name="simulation", done=29, total=30, **kw):
+        super().__init__(**kw)
+        self.stage_name, self.done, self.total = stage_name, done, total
+        self.portfolio = {"holdings": [{"ticker": "AAA", "quantity": 100}], "cash": 500_000.0}
+
+    def get_stage(self):
+        return {"stage": self.stage_name, "status": "running",
+                "days_completed": self.done, "total_days": self.total}
+
+
+def test_end_of_run_unwind_sells_long_positions():
+    api = UnwindAPI()
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-02-01"))   # flat: strategy is silent
+    assert api.orders and api.orders[0][:3] == ("AAA", "SELL", 100)
+    assert any("unwind" in l for l in bot.api_logs)
+
+
+def test_no_unwind_mid_run_or_in_sandbox():
+    for api in (UnwindAPI(done=10), UnwindAPI(stage_name="development", done=499, total=500)):
+        bot, _ = started(api)
+        bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-02-01"))
+        assert api.orders == []
+
+
+def test_latency_summary():
+    bot, _ = make_bot()
+    assert bot.latency_summary() == {"orders": 0}
+    bot.latencies = [0.1, 0.2, 0.3, 0.4, 2.0]
+    s = bot.latency_summary()
+    assert s["orders"] == 5 and s["max_s"] == 2.0 and s["avg_s"] == pytest.approx(0.6)

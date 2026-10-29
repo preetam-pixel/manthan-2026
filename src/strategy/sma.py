@@ -21,6 +21,9 @@ class SMAStrategy:
     def __init__(self):
         self.closes = defaultdict(lambda: deque(maxlen=SMA_N))
 
+    def reset(self, ticker: str) -> None:
+        self.closes.pop(ticker, None)
+
     def warm_start(self, ticker: str, prior_closes) -> None:
         """Seed history from bars strictly before the current simulation date.
 
