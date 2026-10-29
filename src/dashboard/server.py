@@ -58,7 +58,7 @@ def account_view(bot, dash) -> dict:
     """Account figures as the exchange portal shows them.
 
     The exchange's own numbers from the last /portfolio answer, unchanged, with its time: the bot
-    re-reads it every RESYNC_S and FILL_RESYNC_S after a fill, so they are seconds old. Only if
+    re-reads it every RESYNC_S and SETTLE_RESYNC_S after each day's ticks and fills, so they are seconds old. Only if
     the exchange gives no totals are they computed from our cash and holdings, priced at the
     latest close (falling back to the exchange's price, never to zero).
     """

@@ -162,21 +162,37 @@ def test_portfolio_resynced_from_exchange_periodically():
 
 
 def test_portfolio_reread_shortly_after_a_fill():
-    from src.app import FILL_RESYNC_S, RESYNC_S
+    from src.app import SETTLE_RESYNC_S, RESYNC_S
     now = [0.0]
     bot, api = bot_with(SMAStrategy(), clock=lambda: now[0])
     now[0] = 1.0
     bot.handle_message("market.ticks", tick("AAA", 103.0, "2026-01-11"))      # BUY fills
     calls = api.portfolio_calls
-    now[0] = 1.0 + FILL_RESYNC_S / 2
+    now[0] = 1.0 + SETTLE_RESYNC_S / 2
     bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
     assert api.portfolio_calls == calls                                        # rest of the burst first
-    now[0] = 1.0 + FILL_RESYNC_S
+    now[0] = 1.0 + SETTLE_RESYNC_S
     bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
     assert api.portfolio_calls == calls + 1
-    now[0] = 1.0 + FILL_RESYNC_S + 1
+    now[0] = 1.0 + SETTLE_RESYNC_S + 1
     bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
-    assert api.portfolio_calls == calls + 1 and FILL_RESYNC_S < RESYNC_S      # once per fill burst
+    assert api.portfolio_calls == calls + 1 and SETTLE_RESYNC_S < RESYNC_S      # once per fill burst
+
+
+def test_idle_timer_rereads_the_exchange_after_fills_without_waiting_for_a_message():
+    from src.app import SETTLE_RESYNC_S
+    now = [0.0]
+    bot, api = bot_with(SMAStrategy(), clock=lambda: now[0])
+    now[0] = 1.0
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2026-01-11"))      # BUY fills
+    calls = api.portfolio_calls
+    bot.resync_if_due()
+    assert api.portfolio_calls == calls                                        # too soon
+    now[0] = 1.0 + SETTLE_RESYNC_S
+    bot.resync_if_due()                                                        # quiet gap: no message needed
+    assert api.portfolio_calls == calls + 1
+    bot.resync_if_due()
+    assert api.portfolio_calls == calls + 1
 
 
 class Msg:
@@ -292,3 +308,38 @@ def test_sizing_defaults_untouched_and_bad_values_rejected():
                 {"TRADE_SIZE_INR": "80000", "MAX_POSITION_INR": "50000"}):
         with pytest.raises(ValueError):
             apply_sizing(sma_pro(), bad)
+
+
+def test_exchange_reread_after_each_days_ticks_even_without_trades():
+    from src.app import SETTLE_RESYNC_S
+    now = [0.0]
+    bot, api = bot_with(SMAStrategy(), clock=lambda: now[0], trading_enabled=False)
+    now[0] = 1.0
+    bot.handle_message("market.ticks", tick("AAA", 100.0, "2026-01-11"))      # no trade: prices moved
+    calls = api.portfolio_calls
+    now[0] = 1.0 + SETTLE_RESYNC_S
+    bot.resync_if_due()
+    assert api.orders == [] and api.portfolio_calls == calls + 1
+
+
+def test_failed_resync_backs_off_instead_of_retrying_every_second():
+    from src.app import SYNC_RETRY_S
+    now = [0.0]
+    bot, api = bot_with(SMAStrategy(), clock=lambda: now[0], trading_enabled=False)
+
+    def down():
+        api.portfolio_calls += 1
+        raise ConnectionError("host unreachable")
+    api.get_portfolio = down
+    now[0] = 1.0
+    bot.handle_message("market.ticks", tick("AAA", 100.0, "2026-01-11"))
+    now[0] = 4.0
+    bot.resync_if_due()                                    # attempt 1 fails
+    calls = api.portfolio_calls
+    for step in range(1, int(SYNC_RETRY_S)):
+        now[0] = 4.0 + step
+        bot.resync_if_due()
+    assert api.portfolio_calls == calls                    # no retries while backing off
+    now[0] = 4.0 + SYNC_RETRY_S
+    bot.resync_if_due()
+    assert api.portfolio_calls == calls + 1

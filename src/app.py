@@ -35,7 +35,9 @@ HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading close
 TRADING_STAGES = ("simulation", "development")   # stages in which orders may be sent
 RESYNC_S = 15.0               # re-read the exchange portfolio this often (exchange is the source of truth;
                               # also keeps the dashboard within 15 s of the portal; 4 requests/min)
-FILL_RESYNC_S = 2.0           # ... and this long after a fill (at most one extra request per simulated day)
+SETTLE_RESYNC_S = 2.0         # ... and this long after each day's ticks/fills: the exchange revalues every
+                              # holding at each close (one request per simulated day, ~9/min)
+SYNC_RETRY_S = 5.0            # after a failed portfolio read, wait this long (network down: no request flood)
 UNWIND_DAYS = 1              # in the live run, close longs when this many days remain
 
 
@@ -94,7 +96,9 @@ class Bot:
         self.journal = journal or DecisionJournal()
         self.news_context = NewsFilter()          # recent headline risk per ticker, for explanations
         self._last_sync_at: Optional[float] = None
-        self._filled_at: Optional[float] = None
+        self._market_moved_at: Optional[float] = None   # last tick or fill: exchange figures changed
+        self._sync_retry_at: Optional[float] = None     # after a failed sync, not before this
+        self._state_lock = threading.RLock()     # message handling vs. the idle-resync timer
         self._sync_risk_cap()
 
     def _sync_risk_cap(self) -> None:
@@ -156,11 +160,13 @@ class Bot:
         try:
             self.portfolio.sync(self.api.get_portfolio())
             self._last_sync_at = self.clock()
+            self._sync_retry_at = None
             if hasattr(self.strategy, "sync_holdings"):
                 self.strategy.sync_holdings(dict(self.portfolio.held))
             self.log("Synced holdings:", dict(self.portfolio.held), "cash:", self.portfolio.cash)
             return True
         except Exception as exc:  # network / schema problems: stay un-synced, risk blocks orders
+            self._sync_retry_at = self.clock() + SYNC_RETRY_S
             self.log("portfolio sync failed", exc)
             return False
 
@@ -227,21 +233,35 @@ class Bot:
         return self.sim_running
 
     def _resync_due(self) -> bool:
-        """Every RESYNC_S, and FILL_RESYNC_S after a fill (once the day's burst of orders is done),
-        so the exchange's own figures, shown on the dashboard as on the portal, are seconds old."""
+        """Every RESYNC_S, and SETTLE_RESYNC_S after the last tick or fill (once the day's burst is
+        done), so the exchange's own figures, shown on the dashboard as on the portal, are seconds old."""
         if self._last_sync_at is None or self.portfolio.uncertain:
             return False
         now = self.clock()
+        if self._sync_retry_at is not None and now < self._sync_retry_at:
+            return False                             # last attempt failed: back off
         if now - self._last_sync_at >= RESYNC_S:
             return True
-        return (self._filled_at is not None and self._filled_at >= self._last_sync_at
-                and now - self._filled_at >= FILL_RESYNC_S)
+        return (self._market_moved_at is not None and self._market_moved_at >= self._last_sync_at
+                and now - self._market_moved_at >= SETTLE_RESYNC_S)
+
+    def resync_if_due(self) -> None:
+        """Called once a second by a timer thread, so the exchange is re-read in the quiet gap
+        after a day's orders instead of waiting for the next day's first message. Shares the
+        state lock with handle_message: the two never run at the same time."""
+        with self._state_lock:
+            if self._resync_due():
+                self.sync_portfolio()
 
     # ---- events -----------------------------------------------------
     def handle_message(self, topic: str, event: dict, received_at: Optional[float] = None) -> None:
+        received_at = self.clock() if received_at is None else received_at
+        with self._state_lock:
+            self._handle_message(topic, event, received_at)
+
+    def _handle_message(self, topic: str, event: dict, received_at: float) -> None:
         if not isinstance(event, dict):
             return
-        received_at = self.clock() if received_at is None else received_at
         if self._resync_due():
             self.sync_portfolio()                    # exchange-truth reconciliation
         if self._pending_strategy:
@@ -303,6 +323,7 @@ class Bot:
             self.log("ignored malformed tick", ticker, close)
             return
         self.log("TICK", date, ticker, close)
+        self._market_moved_at = self.clock()          # the exchange revalues holdings at this close
 
         prev = self._last_date.get(ticker)
         if date is not None and prev == date:
@@ -447,7 +468,7 @@ class Bot:
                                  tax_term="/".join(sorted({r.term for r in realised})))
             if entry is not None:
                 entry["fill_price"] = fill
-            self._filled_at = self.clock()           # re-read the exchange shortly (see handle_message)
+            self._market_moved_at = self.clock()     # re-read the exchange shortly (see _resync_due)
             self._d("record_fill", signal.ticker, signal.action, signal.quantity, fill,
                     key[2])
         elif result.outcome == "UNCERTAIN":
@@ -588,6 +609,7 @@ def run(dashboard: bool = False) -> None:
         _log(f"Dashboard: {server.url}  (trading is {'ON' if trading else 'STOPPED - press Start in the dashboard'})")
     bot.startup()
     _log(f"Strategy: {strategy_name}  |  decision journal: {journal_path}")
+    start_resync_timer(bot)
     try:
         consume_forever(bot, make_consumer, dash)
     except KeyboardInterrupt:
@@ -597,6 +619,21 @@ def run(dashboard: bool = False) -> None:
         _log("Tax estimate:", {k: v for k, v in bot.tax.summary().items() if k != "years"})
         if server is not None:
             server.stop()
+
+
+def start_resync_timer(bot: "Bot", interval: float = 1.0) -> threading.Thread:
+    """Re-read the exchange portfolio when due even while no Kafka message arrives."""
+    def loop():
+        while True:
+            time.sleep(interval)
+            try:
+                bot.resync_if_due()
+            except Exception as exc:                  # never let the timer die silently
+                bot.log("resync timer error", exc)
+
+    thread = threading.Thread(target=loop, name="portfolio-resync", daemon=True)
+    thread.start()
+    return thread
 
 
 def consume_forever(bot: "Bot", make_consumer: Callable, dash=None, sleep: Callable = time.sleep,
