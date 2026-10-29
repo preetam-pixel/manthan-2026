@@ -123,3 +123,12 @@ def test_get_stocks_and_stage():
     assert c.get_stocks() == ["A", "B"]
     with pytest.raises(APIError):
         make_client(lambda *a: FakeResp(200, {"status": "ok"})).get_stocks()
+
+
+def test_heartbeat_not_blocked_by_exhausted_budget_but_orders_are():
+    c = make_client(lambda m, u, k: FakeResp(200, {"status": "ok", "seq": 1, "stocks": []}))
+    for _ in range(100):
+        c.get_stocks()
+    with pytest.raises(RateLimitedError):
+        c.get_stocks()
+    assert c.acknowledge_preflight(1)["seq"] == 1

@@ -22,6 +22,7 @@ from src.strategy.sma import BAND, SMA_N, SMAStrategy
 
 STAGE_CACHE_S = 2.5          # /stage is polled at most this often
 WARM_START_PER_PREFLIGHT = 5  # history fetches per preflight tick (keeps ACKs prompt)
+HEARTBEAT_RETRY_INTERVAL_S = 1.0  # minimum wait before retrying a failed ACK
 HEARTBEAT_MIN_INTERVAL_S = 2.0  # one ACK per 15 s is required; bursts of preflight ticks must not flood the API
 HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading closes
 
@@ -60,7 +61,7 @@ class Bot:
         self._stage_at: Optional[float] = None
         self._warm_pending: list[str] = []
         self._last_date: dict[str, str] = {}
-        self._last_ack_at: Optional[float] = None
+        self._next_ack_after: float = 0.0
         self.latencies: list[float] = []
 
     # ---- startup ----------------------------------------------------
@@ -132,7 +133,8 @@ class Bot:
             elif is_price_tick(topic, event):
                 self._on_price_tick(event, received_at)
             elif topic == TOPIC_NEWS:
-                self.log(format_news(event))   # informational only; never trades
+                if (event.get("data") or {}).get("ticker"):      # skip empty filler events
+                    self.log(format_news(event))   # informational only; never trades
         except Exception as exc:               # a bad event must not kill the loop
             self.log("event error", exc)
 
@@ -140,12 +142,13 @@ class Bot:
         seq = preflight_seq(event)
         if isinstance(seq, int) and not isinstance(seq, bool):
             now = self.clock()
-            if self._last_ack_at is None or now - self._last_ack_at >= HEARTBEAT_MIN_INTERVAL_S:
+            if now >= self._next_ack_after:
                 try:
                     self.api.acknowledge_preflight(seq)
-                    self._last_ack_at = now      # only after success, so failures retry on the next tick
+                    self._next_ack_after = now + HEARTBEAT_MIN_INTERVAL_S
                     self.log("heartbeat ack", seq)
                 except Exception as exc:
+                    self._next_ack_after = now + HEARTBEAT_RETRY_INTERVAL_S
                     self.log("heartbeat error", exc)
         else:
             self.log("preflight without usable seq", event)

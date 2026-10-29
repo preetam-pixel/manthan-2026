@@ -262,6 +262,26 @@ def test_heartbeat_burst_is_throttled_and_failures_retry_next_tick():
     now[0] += 2.5
     bot.handle_message("market.ticks", pre(12))      # fails, must not mark as acked
     api.fail_heartbeat = False
-    now[0] += 0.1
-    bot.handle_message("market.ticks", pre(13))      # retried immediately
+    now[0] += 1.1
+    bot.handle_message("market.ticks", pre(13))      # retried after the 1 s backoff
     assert api.heartbeats[-1] == 13
+
+
+def test_failed_heartbeat_burst_retries_at_most_once_per_second():
+    now = [0.0]
+    api = FakeAPI()
+    api.fail_heartbeat = True
+    calls = []
+    orig = api.acknowledge_preflight
+    api.acknowledge_preflight = lambda seq: (calls.append(seq), orig(seq))[1]
+    bot = Bot(api, log=lambda *a: None, clock=lambda: now[0])
+    for n in range(50):                              # 50 ticks inside one second
+        now[0] += 0.02
+        bot.handle_message("market.ticks", {"event_type": "preflight_tick", "seq": n})
+    assert len(calls) == 1
+
+
+def test_empty_news_is_not_logged():
+    bot, api = make_bot()
+    bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
+    assert not any("NEWS" in l for l in bot.api_logs)

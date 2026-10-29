@@ -82,18 +82,19 @@ class SimulationAPIClient:
         )
 
     # ---- pacing -----------------------------------------------------
-    def _reserve_slot(self) -> None:
+    def _reserve_slot(self, critical: bool = False) -> None:
+        """critical=True (heartbeat) skips the local budget but still honours a 429 penalty."""
         now = self._clock()
         if now < self._penalty_until:
             raise RateLimitedError("in 429 penalty box")
         while self._sent and now - self._sent[0] >= 60.0:
             self._sent.popleft()
-        if len(self._sent) >= RATE_LIMIT_HEADROOM:
+        if not critical and len(self._sent) >= RATE_LIMIT_HEADROOM:
             raise RateLimitedError("local request budget exhausted")
         self._sent.append(now)
 
-    def _request(self, method: str, path: str, **kw) -> requests.Response:
-        self._reserve_slot()
+    def _request(self, method: str, path: str, critical: bool = False, **kw) -> requests.Response:
+        self._reserve_slot(critical)
         kw.setdefault("timeout", self.timeout)
         response = self.session.request(method, f"{self.base_url}{path}", **kw)
         if response.status_code == 429:
@@ -124,7 +125,7 @@ class SimulationAPIClient:
             raise ValueError("seq cannot be negative")
 
         response = self._request(
-            "POST", "/api/v1/bot/heartbeat", json={"seq": seq}
+            "POST", "/api/v1/bot/heartbeat", critical=True, json={"seq": seq}
         )
 
         if response.status_code == 401:
