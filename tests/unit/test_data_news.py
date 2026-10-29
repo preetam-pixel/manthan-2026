@@ -43,3 +43,21 @@ def test_format_news():
 def test_features_sma_warmup_and_window():
     assert sma([1, 2, 3], 8) is None
     assert sma(list(range(1, 11)), 8) == sum(range(3, 11)) / 8
+
+
+def test_parse_history_drops_bad_bars_and_sorts():
+    from src.market_data.consumer import parse_history
+    resp = {"prices": [{"date": "2021-01-03", "close": 3.0}, {"date": "2021-01-01", "close": 1.0},
+                       {"date": "2021-01-02", "close": None}, {"date": "2021-01-04", "close": 0},
+                       {"close": 5.0}]}
+    assert parse_history(resp) == [("2021-01-01", 1.0), ("2021-01-03", 3.0)]
+    assert parse_history({}) == [] and parse_history(None) == []
+
+
+def test_warm_start_enables_signal_and_keeps_last_eight():
+    from datetime import datetime, timezone
+    from src.strategy.sma import SMAStrategy
+    s = SMAStrategy()
+    s.warm_start("T", [50.0] * 5 + [100.0] * 8)
+    assert list(s.closes["T"]) == [100.0] * 8
+    assert s.on_close("T", 103.0, 0, datetime.now(timezone.utc)).action == "BUY"

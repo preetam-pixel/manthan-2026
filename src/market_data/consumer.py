@@ -27,6 +27,20 @@ def preflight_seq(event: dict) -> Optional[int]:
     return seq
 
 
+def parse_history(response: dict) -> list[tuple[str, float]]:
+    """(date, close) pairs, oldest first, from GET /stocks/:ticker/history.
+
+    Bars with a missing or non-positive close are dropped, never zero-filled.
+    """
+    out = []
+    for bar in (response or {}).get("prices") or []:
+        date, close = bar.get("date"), bar.get("close")
+        if date and isinstance(close, (int, float)) and not isinstance(close, bool) and close > 0:
+            out.append((date, float(close)))
+    out.sort(key=lambda p: p[0])
+    return out
+
+
 def normalize_tick(event: dict) -> dict:
     data = event.get("data") or {}
     return {

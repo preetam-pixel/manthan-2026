@@ -21,6 +21,15 @@ class SMAStrategy:
     def __init__(self):
         self.closes = defaultdict(lambda: deque(maxlen=SMA_N))
 
+    def warm_start(self, ticker: str, prior_closes) -> None:
+        """Seed history from bars strictly before the current simulation date.
+
+        Only the last SMA_N closes are kept. No signals are produced.
+        """
+        history = self.closes[ticker]
+        history.clear()
+        history.extend(c for c in prior_closes if c is not None and c > 0)
+
     def on_close(self, ticker: str, close: Optional[float], held_quantity: int,
                  timestamp: datetime) -> Optional[Signal]:
         if ticker is None or close is None:
