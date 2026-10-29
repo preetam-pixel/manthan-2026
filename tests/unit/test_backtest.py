@@ -47,3 +47,9 @@ def test_walk_forward_windows():
     rows = make_rows([100.0] * 30)
     results = walk_forward(rows, 3)
     assert len(results) == 3 and all(r["trades"] == 0 for r in results)
+
+
+def test_utilization_reported():
+    res = replay(make_rows(FLAT_THEN_JUMP_THEN_DROP))
+    assert 0 < res["avg_utilization_pct"] < 20
+    assert replay(make_rows([100.0] * 20))["avg_utilization_pct"] == 0

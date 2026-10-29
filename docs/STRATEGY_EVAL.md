@@ -44,3 +44,11 @@ Source: `GET /stocks/:ticker/history` from the test simulation. Costs: Rs 20 bro
 - **ensemble** was profitable in all three windows, but: it was assembled *after* looking at this data, has only 33 round trips, and the live run uses a different period. Treat as promising, **not proven**. Expect modest results; its main value is low drawdown and low turnover.
 - The news filter (entry veto only) cannot be backtested: no historical news is available from the API. It is unit-tested only.
 - Reproduce: `py scripts/evaluate_strategies.py history.json`.
+
+## Leaderboard comparison (test run) and what it implies
+Top-10 teams in the test run reported total wealth Rs 11.5L - 18.2L (+15% to +88%), 82-98% cash utilization for the leaders, 0 errors, 0.5-3.7 s decision time, taxes up to Rs 63k. Our bot was not on that list.
+- We cannot see their strategies. Part of their result may come from the **repeating test dataset** (the sandbox loops, so a bot can learn it); that does not transfer to the confidential live period, and the jury explicitly penalises "lucky price swings".
+- On our real-history replay, **trends do not persist** (uptrends -0.5% over the next 5 days, downtrends +0.3% to +0.9%), so trend-following and trend-shorting both lose; no tradable edge was found.
+- Our disciplined rules deploy very little capital (ensemble: ~1-4% average utilization), so returns are small by construction and the cash-utilization pillar scores low.
+- `ensemble_scaled` (100k notional, 8 positions): +1.80%, max drawdown 0.60%, avg utilization 2.5% on the same 275 bars (vs +0.82% / 0.31% / 1.2% for `ensemble`). Utilization is still low.
+- Not done / not validated: tax-loss harvesting (needs verified tax/portfolio fields), shorting (not approved in CONTRACTS.md; no edge found on the short side), any claim of beating the leaderboard.

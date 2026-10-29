@@ -13,6 +13,7 @@ STRATEGIES = {
     "relative_strength": disciplined.relative_strength,
     "laggard_reversion": disciplined.laggard_reversion,
     "ensemble": disciplined.ensemble,
+    "ensemble_scaled": disciplined.ensemble_scaled,
 }
 
 

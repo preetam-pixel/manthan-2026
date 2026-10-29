@@ -30,6 +30,7 @@ def replay(rows: Iterable[dict], starting_cash: float = 1_000_000.0,
     trades = []
     fees = 0.0
     equity_curve = []
+    invested_fracs = []
     prev_date: Optional[str] = None
 
     for row in rows:
@@ -61,6 +62,7 @@ def replay(rows: Iterable[dict], starting_cash: float = 1_000_000.0,
                 trades.append((date, ticker, "SELL", sig.quantity, close))
         equity = cash + sum(q * last_close[t] for t, q in held.items())
         equity_curve.append(equity)
+        invested_fracs.append((equity - cash) / equity if equity > 0 else 0.0)
 
     final = equity_curve[-1] if equity_curve else starting_cash
     peak, max_dd = starting_cash, 0.0
@@ -74,6 +76,7 @@ def replay(rows: Iterable[dict], starting_cash: float = 1_000_000.0,
         "max_drawdown_pct": max_dd * 100,
         "trades": len(trades),
         "fees_paid": fees,
+        "avg_utilization_pct": 100 * sum(invested_fracs) / len(invested_fracs) if invested_fracs else 0.0,
         "open_positions": {t: q for t, q in held.items() if q},
         "trade_log": trades,
     }

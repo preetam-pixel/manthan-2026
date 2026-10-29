@@ -127,8 +127,13 @@ class DisciplinedStrategy:
     history_days = HISTORY_DAYS
 
     def __init__(self, name: str, entries: list[Rule], exits: list[Rule],
-                 min_entry_votes: int = 1, news: Optional[NewsFilter] = None):
+                 min_entry_votes: int = 1, news: Optional[NewsFilter] = None,
+                 notional: Optional[float] = None, risk_per_trade: Optional[float] = None,
+                 max_positions: Optional[int] = None):
         self.name = name
+        self.notional = NOTIONAL if notional is None else notional
+        self.risk_per_trade = RISK_PER_TRADE_INR if risk_per_trade is None else risk_per_trade
+        self.max_positions = MAX_POSITIONS if max_positions is None else max_positions
         self.entries, self.exits, self.min_entry_votes = entries, exits, min_entry_votes
         self.news = news or NewsFilter()
         self.bars = defaultdict(lambda: deque(maxlen=MAX_BARS))
@@ -237,7 +242,7 @@ class DisciplinedStrategy:
             return None
         if self.t[ticker] - self.exit_t.get(ticker, -10**9) < COOLDOWN_BARS:
             return None
-        if sum(1 for v in self.held_seen.values() if v > 0) >= MAX_POSITIONS:
+        if sum(1 for v in self.held_seen.values() if v > 0) >= self.max_positions:
             return None
         breadth = self.breadth()
         if breadth is not None and breadth < MIN_BREADTH:
@@ -247,7 +252,7 @@ class DisciplinedStrategy:
         reasons = [r for r in (rule(x) for rule in self.entries) if r]
         if len(reasons) < self.min_entry_votes:
             return None
-        notional = min(NOTIONAL, RISK_PER_TRADE_INR / (STOP_ATR * x.atr_pct))
+        notional = min(self.notional, self.risk_per_trade / (STOP_ATR * x.atr_pct))
         qty = max(1, int(notional // x.c))
         if qty * x.c > MAX_POS_VALUE:
             return None
@@ -283,3 +288,11 @@ def ensemble(news=None):
     """Enter when at least two of pullback / oversold-dip / laggard agree; exit on any of them."""
     return DisciplinedStrategy("ensemble", [pullback_entry, meanrev_entry, laggard_entry],
                                [pullback_exit, meanrev_exit, laggard_exit], min_entry_votes=2, news=news)
+
+
+def ensemble_scaled(news=None):
+    """Same rules as ``ensemble`` with 2x notional/risk and 8 positions (moderate capital deployment)."""
+    strat = ensemble(news)
+    strat.name = "ensemble_scaled"
+    strat.notional, strat.risk_per_trade, strat.max_positions = 100_000, 5_000, 8
+    return strat
