@@ -20,3 +20,10 @@ pytest
 ## Update: wired runtime
 `python -m src.app --live` runs the full loop (Kafka -> SMA strategy -> risk gate -> execution -> reconciliation). Without `--live` it only prints a hint. Tokens come from `BOT_ACCESS_TOKEN` or `TEAM_JWT_TOKEN`.
 Status: unit-tested with fakes only (`pytest`); **not yet run against the live simulator or Kafka**. Do a sandbox run during the development stage before relying on it.
+
+## Strategies
+Select with the `STRATEGY` env var (default `sma_band`, the original SMA8 +/-1.5% rule).
+- `sma_band` — baseline, unchanged.
+- `adaptive` — volatility-scaled band (ATR), volume confirmation, market-breadth filter, chaos-regime filter, friction (brokerage + DP) check, risk-based sizing, ATR trailing stop. Long-only. **Not validated on real data yet**; compare with `src.strategy.backtest.compare` before using it live.
+
+All strategies pass through the same risk gate. In the live run (stage `simulation`) open longs are closed on the last day (`UNWIND_DAYS`); this never triggers in the looping sandbox. On exit the bot prints a decision-latency summary.

@@ -1,3 +1,4 @@
+import pytest
 from src.execution.client import APIError, OrderResult
 from src.app import Bot
 
@@ -285,3 +286,68 @@ def test_empty_news_is_not_logged():
     bot, api = make_bot()
     bot.handle_message("market.news", {"event_type": "news_flash", "data": {}})
     assert not any("NEWS" in l for l in bot.api_logs)
+
+
+# ---- adaptive strategy, unwind, latency ---------------------------------
+class BarsAPI(FakeAPI):
+    def get_history(self, ticker, days):
+        self.history_calls.append(ticker)
+        return {"prices": [{"date": f"2021-01-{i:02d}", "open": 100.0, "high": 101.0, "low": 99.0,
+                            "close": 100.0, "volume": 1000.0} for i in range(1, 26)]}
+
+
+def bar_tick(ticker, close, date, volume=3000.0):
+    ev = tick(ticker, close, date)
+    ev["data"].update({"open": close, "high": close + 0.5, "low": close - 5.0, "volume": volume})
+    return ev
+
+
+def test_adaptive_strategy_trades_through_bot_and_explains_reason():
+    from src.strategy.adaptive import AdaptiveStrategy
+    api = BarsAPI()
+    bot, _ = started(api, strategy=AdaptiveStrategy())
+    bot.handle_message("market.ticks", bar_tick("AAA", 105.0, "2021-02-01"))
+    assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
+    assert any("ORDER BUY" in l and "vol x3.0" in l for l in bot.api_logs)
+
+
+def test_adaptive_ticker_reset_on_date_going_backwards():
+    from src.strategy.adaptive import AdaptiveStrategy
+    bot, api = started(BarsAPI(), strategy=AdaptiveStrategy())
+    bot.handle_message("market.ticks", bar_tick("AAA", 100.0, "2021-06-01"))
+    bot.handle_message("market.ticks", bar_tick("AAA", 100.0, "2021-01-01"))
+    assert len(bot.strategy.bars["AAA"]) == 1
+
+
+class UnwindAPI(FakeAPI):
+    def __init__(self, stage_name="simulation", done=29, total=30, **kw):
+        super().__init__(**kw)
+        self.stage_name, self.done, self.total = stage_name, done, total
+        self.portfolio = {"holdings": [{"ticker": "AAA", "quantity": 100}], "cash": 500_000.0}
+
+    def get_stage(self):
+        return {"stage": self.stage_name, "status": "running",
+                "days_completed": self.done, "total_days": self.total}
+
+
+def test_end_of_run_unwind_sells_long_positions():
+    api = UnwindAPI()
+    bot, _ = started(api)
+    bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-02-01"))   # flat: strategy is silent
+    assert api.orders and api.orders[0][:3] == ("AAA", "SELL", 100)
+    assert any("unwind" in l for l in bot.api_logs)
+
+
+def test_no_unwind_mid_run_or_in_sandbox():
+    for api in (UnwindAPI(done=10), UnwindAPI(stage_name="development", done=499, total=500)):
+        bot, _ = started(api)
+        bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-02-01"))
+        assert api.orders == []
+
+
+def test_latency_summary():
+    bot, _ = make_bot()
+    assert bot.latency_summary() == {"orders": 0}
+    bot.latencies = [0.1, 0.2, 0.3, 0.4, 2.0]
+    s = bot.latency_summary()
+    assert s["orders"] == 5 and s["max_s"] == 2.0 and s["avg_s"] == pytest.approx(0.6)

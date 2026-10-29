@@ -14,10 +14,12 @@ from src.contracts import Signal
 from src.execution.client import APIError, OrderResult, SimulationAPIClient
 from src.market_data.consumer import (TOPIC_NEWS, TOPIC_TICKS, is_preflight,
                                       is_price_tick, normalize_tick,
-                                      parse_history, preflight_seq)
+                                      parse_history, parse_history_bars,
+                                      preflight_seq)
 from src.news.consumer import format_news
 from src.portfolio.state import PortfolioState
 from src.risk.manager import RiskManager
+from src.strategy.registry import DEFAULT as DEFAULT_STRATEGY, create as create_strategy
 from src.strategy.sma import BAND, SMA_N, SMAStrategy
 
 STAGE_CACHE_S = 2.5          # /stage is polled at most this often
@@ -25,6 +27,7 @@ WARM_START_PER_PREFLIGHT = 5  # history fetches per preflight tick (keeps ACKs p
 HEARTBEAT_RETRY_INTERVAL_S = 1.0  # minimum wait before retrying a failed ACK
 HEARTBEAT_MIN_INTERVAL_S = 2.0  # one ACK per 15 s is required; bursts of preflight ticks must not flood the API
 HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading closes
+UNWIND_DAYS = 1              # in the live run, close longs when this many days remain
 
 
 def _log(*a):
@@ -58,6 +61,7 @@ class Bot:
 
         self.universe: Optional[set] = None
         self.sim_running = False
+        self.stage_info: dict = {}
         self._stage_at: Optional[float] = None
         self._warm_pending: list[str] = []
         self._last_date: dict[str, str] = {}
@@ -101,8 +105,12 @@ class Bot:
             if ticker in self._last_date:
                 continue  # live ticks already seen
             try:
-                closes = [c for _, c in parse_history(self.api.get_history(ticker, HISTORY_DAYS))]
-                self.strategy.warm_start(ticker, closes[-SMA_N:])
+                response = self.api.get_history(ticker, HISTORY_DAYS)
+                if hasattr(self.strategy, "warm_start_bars"):
+                    self.strategy.warm_start_bars(ticker, parse_history_bars(response))
+                else:
+                    closes = [c for _, c in parse_history(response)]
+                    self.strategy.warm_start(ticker, closes[-SMA_N:])
             except Exception as exc:
                 self.log("warm-start failed (cold start)", ticker, exc)
 
@@ -113,6 +121,7 @@ class Bot:
             return self.sim_running
         try:
             stage = self.api.get_stage()
+            self.stage_info = stage if isinstance(stage, dict) else {}
             # live /stage reports lowercase status ("running"); the PDF shows uppercase
             status = str(stage.get("status") or "").upper()
             self.sim_running = str(stage.get("stage") or "").lower() == "simulation" and status == "RUNNING"
@@ -179,21 +188,48 @@ class Bot:
         if not self.portfolio.synced:
             self.sync_portfolio()
         ts = _event_time(event)
-        history = self.strategy.closes.get(ticker)
-        if history is not None and len(history) == SMA_N:
-            sma = sum(history) / SMA_N
-            self.log(f"  {ticker} vs SMA{SMA_N}: {(float(close) / sma - 1):+.2%} (trigger +/-{BAND:.1%})")
+        held = self.portfolio.quantity(ticker)
+        if hasattr(self.strategy, "on_bar"):
+            signal = self.strategy.on_bar(ticker, tick, held, ts)
         else:
-            self.log(f"  {ticker} warming up {len(history) if history is not None else 0}/{SMA_N}")
-        signal = self.strategy.on_close(ticker, float(close), self.portfolio.quantity(ticker), ts)
+            history = self.strategy.closes.get(ticker)
+            if history is not None and len(history) == SMA_N:
+                sma = sum(history) / SMA_N
+                self.log(f"  {ticker} vs SMA{SMA_N}: {(float(close) / sma - 1):+.2%} (trigger +/-{BAND:.1%})")
+            else:
+                self.log(f"  {ticker} warming up {len(history) if history is not None else 0}/{SMA_N}")
+            signal = self.strategy.on_close(ticker, float(close), held, ts)
+        if signal is None and held > 0 and self._unwind_due():
+            signal = Signal(ticker, "SELL", held, ts, "end-of-run unwind")
         if signal is None:
             return
         self.refresh_stage()
         self._execute(signal, float(close), date, received_at)
 
+    def _unwind_due(self) -> bool:
+        """True in the live run's last UNWIND_DAYS days (never in the looping sandbox)."""
+        if not self.refresh_stage():
+            return False
+        info = self.stage_info
+        if str(info.get("stage") or "").lower() != "simulation":
+            return False
+        done, total = info.get("days_completed"), info.get("total_days")
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (done, total)) or total <= 0:
+            return False
+        return done >= total - UNWIND_DAYS
+
+    def latency_summary(self) -> dict:
+        """Decision latency (tick received -> order response) over sent orders."""
+        if not self.latencies:
+            return {"orders": 0}
+        ordered = sorted(self.latencies)
+        p95 = ordered[min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))]
+        return {"orders": len(ordered), "avg_s": sum(ordered) / len(ordered),
+                "p95_s": p95, "max_s": ordered[-1]}
+
     def _reset_ticker(self, ticker: str) -> None:
         self.log("simulated date went backwards; resetting", ticker)
-        self.strategy.closes.pop(ticker, None)
+        self.strategy.reset(ticker)
         self.portfolio.submitted = {k for k in self.portfolio.submitted if k[0] != ticker}
         self.sync_portfolio()
 
@@ -266,6 +302,11 @@ def run() -> None:
         api = SimulationAPIClient()
     except ValueError as exc:
         raise SystemExit(str(exc))
+    strategy_name = os.environ.get("STRATEGY", DEFAULT_STRATEGY)
+    try:
+        strategy = create_strategy(strategy_name)   # validate before touching the network
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     from kafka import KafkaConsumer  # imported lazily so tests need no broker
 
     broker = os.environ.get("BROKER", "192.168.65.157:9094")
@@ -278,11 +319,15 @@ def run() -> None:
         enable_auto_commit=False,
         value_deserializer=_safe_json,
     )
-    bot = Bot(api, warm_start=os.environ.get("WARM_START", "1") != "0")
+    bot = Bot(api, strategy=strategy, warm_start=os.environ.get("WARM_START", "1") != "0")
     bot.startup()
+    _log(f"Strategy: {strategy_name}")
     _log("Connected to Kafka. Listening...")
-    for message in consumer:
-        bot.handle_message(message.topic, message.value)
+    try:
+        for message in consumer:
+            bot.handle_message(message.topic, message.value)
+    finally:
+        _log("Decision latency:", bot.latency_summary())
 
 
 def main() -> None:

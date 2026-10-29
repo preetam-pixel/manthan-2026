@@ -18,3 +18,8 @@
 
 ## To finish once history schema is known
 Write a small loader mapping the verified history response to `{date, ticker, close}`, run `walk_forward`, and record the numbers here.
+
+## Update: adaptive strategy and comparison
+- `src/strategy/adaptive.py` adds an opt-in strategy; baseline remains default (CONTRACTS.md requires team approval before changing live behaviour).
+- `backtest.compare(rows, {"sma_band": ..., "adaptive": ...})` replays identical rows through several strategies. Fees now include the Rs 15.34 DP charge on sells; **taxes are still not modelled**.
+- Still **no real-data results**: run the comparison on `/stocks/:ticker/history` bars (walk-forward) and record numbers here before choosing `adaptive` for the live run.
