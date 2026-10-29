@@ -82,6 +82,7 @@ restarts), so it is a health check, not a clean comparison. Use Baseline 1 to co
 | 2 | `sma_news`: skip a BUY when the stock's last 3 days of news score <= -2 | +34.4% vs +28.8%, DD 10.0% vs 10.3%, better in both halves, all windows positive, +25.3% without PLNX | pass |
 | 3 | 14 entry/exit ideas on top of `sma_news` (confirmation, earlier exits, trailing stops, trend, volume, up day, cooldown, second-buy rules) | none beats +34.4% robustly; a 6% trailing stop passed but failed at 5% and 7% | no change |
 | 4 | stop-loss, exposure caps, position and daily-buy limits, drawdown brake | stops never trigger (the SMA exit fires first); limits cost return in one half; brake at 6% locks the bot out. Live audit: 1,153 orders, 0 rejected, 0 duplicates | no change |
+| 5 | original vs `sma_pro` vs `sma_news`, identical conditions (docs/STEP5_COMPARISON.md) | `sma_news` +34.4% vs +28.8% / +17.9%; Sharpe 1.39 vs 1.15 / 1.06; beats `sma_pro` in 33 of 40 random 100-day periods | `sma_news` stays live |
 
 ## Rule for Steps 2-4
 

@@ -9,17 +9,19 @@ dashboard's "Evidence" panel renders this file.
 import argparse
 import json
 import math
+import os
 import statistics as st
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from scripts.replay_bot import run as run_bot
 from src.market_data.recorder import load_stream
 from src.news.filter import score_text
 from src.strategy.backtest import replay
 from src.strategy.registry import STRATEGIES
 from src.strategy.sma import SMAStrategy
 
-SHOWN = ["sma_pro", "sma_band", "ensemble", "mean_reversion", "trend_pullback",
+SHOWN = ["sma_news", "sma_pro", "sma_band", "ensemble", "mean_reversion", "trend_pullback",
          "laggard_reversion", "breakout", "relative_strength", "adaptive"]
 
 
@@ -92,9 +94,10 @@ def news_study(history, news):
     den = math.sqrt(sum((a - ms) ** 2 for a in all_s) * sum((b - mr) ** 2 for b in all_r))
     return {"buckets": rows, "headlines": sum(len(v) for v in buckets.values()),
             "ticker_days": len(all_s), "correlation_next_day": num / den if den else None,
-            "conclusion": "News sentiment does not predict next-day returns here (all |t| < 2, "
-                          "correlation ~0). The bot therefore uses news only for context and explanations, "
-                          "never as a trade trigger."}
+            "conclusion": "On its own, sentiment does not predict next-day returns (correlation ~0). But a "
+                          "breakout on bad news tends to fail: skipping BUYs when the last 3 days of headlines "
+                          "score -2 or worse adds ~6 points over 500 days and beats 40/40 placebo runs. News "
+                          "never triggers a trade; it can only veto a buy."}
 
 
 def build(recording):
@@ -110,10 +113,20 @@ def build(recording):
     curves = {"buy_and_hold": _buy_hold_curve(rows)}
     for name in SHOWN:
         f = STRATEGIES[name]
-        harvest = bool(getattr(f(), "tax_harvest", False))
-        full = replay(rows, strategy_factory=f, tax_harvest=harvest)
-        qs = [replay(_subset(rows, dates, a, b), strategy_factory=f, tax_harvest=harvest)["return_pct"]
-              for a, b in quarters]
+        probe = f()
+        if getattr(probe, "wait_for_news_s", 0):
+            # needs the exchange's news timing: run the real bot (scripts/replay_bot.py)
+            bot = run_bot(history, news, name)
+            full = {"return_pct": bot["return_pct"], "after_tax_return_pct": bot["after_tax_return_pct"],
+                    "max_drawdown_pct": bot["max_dd_pct"], "trades": bot["orders"], "fees_paid": bot["charges"],
+                    "tax_estimate": bot["tax_estimate"], "avg_utilization_pct": None, "harvest_sells": None,
+                    "equity_by_date": bot["equity_by_date"]}
+            qs = [run_bot(history, news, name, days=(a, b))["return_pct"] for a, b in quarters]
+        else:
+            harvest = bool(getattr(probe, "tax_harvest", False))
+            full = replay(rows, strategy_factory=f, tax_harvest=harvest)
+            qs = [replay(_subset(rows, dates, a, b), strategy_factory=f, tax_harvest=harvest)["return_pct"]
+                  for a, b in quarters]
         up_m = sum(m for m in market_q if m > 0)
         dn_m = sum(m for m in market_q if m < 0)
         strategies.append({
@@ -125,7 +138,7 @@ def build(recording):
             "downside_capture": sum(q for q, m in zip(qs, market_q) if m < 0) / dn_m if dn_m else None,
             "harvest_sells": full["harvest_sells"],
         })
-        if name in ("sma_pro", "sma_band"):
+        if name in ("sma_news", "sma_pro", "sma_band"):
             curves[name] = full["equity_by_date"]
 
     grid = []
@@ -157,13 +170,31 @@ def build(recording):
             {"idea": "Momentum: breakout / relative strength / adaptive", "why": "Trends reverse in this data; all lost money."},
             {"idea": "Account drawdown brake (6%)", "why": f"Locks the bot out of recoveries: {brake['return_pct']:+.1f}% vs "
                                                           f"{strategies[0]['return_pct']:+.1f}% without it."},
-            {"idea": "News-driven trading or news veto", "why": "No predictive power (see news study)."},
+            {"idea": "News-driven trades: sell on bad news, buy bigger or earlier on good news",
+             "why": "Each lowered return or failed in one half (Step 2). Only the veto on breakout buys survived."},
+            {"idea": "Entry/exit tweaks: 2-close confirmation, earlier exits, trailing stops, trend and volume filters",
+             "why": "None beat sma_news in both halves; a 6% trailing stop passed but failed at 5% and 7% (Step 3)."},
+            {"idea": "Extra risk limits: stop-loss, exposure cap, max positions, max buys per day",
+             "why": "Stops never trigger before the SMA exit; the limits cost return in one half (Step 4)."},
             {"idea": "Short selling", "why": "Downtrends were followed by rebounds; margin lock and 10-day square-off add risk."},
         ],
-        "chosen": {"id": "sma_pro", "why": "Robust across every 5-12 day window and band tested; captures about a third "
-                                           "of rallies but very little of the sell-offs; 1.5x size lifts return with a "
-                                           "moderate drawdown; year-end tax-loss harvesting on top."},
+        "chosen": {"id": "sma_news", "why": _chosen_why()},
     }
+
+
+def _chosen_why(path="docs/comparison.json"):
+    why = ("The SMA8 +/-1.5% band (robust across every 5-12 day window and band tested) at 1.5x size with "
+           "year-end tax-loss harvesting, plus a news veto: each BUY waits 0.5 s for the day's headlines and is "
+           "skipped after bad news.")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            bots = json.load(fh).get("bots", {})
+        new, old = bots.get("sma_news", {}).get("random_periods"), bots.get("sma_pro", {}).get("random_periods")
+        if new and old:
+            more = sum(a["return_pct"] > b["return_pct"] for a, b in zip(new, old))
+            why += (f" Under identical conditions it beat the version without news in {more} of {len(new)} "
+                    f"random 100-day periods (scripts/compare_bots.py).")
+    return why
 
 
 def main():
@@ -176,7 +207,7 @@ def main():
         json.dump(ev, fh, indent=1, default=str)
     best = ev["strategies"][0]
     print(f"wrote {args.out}: {ev['dataset']['days']} days, {ev['dataset']['news_items']} news; "
-          f"sma_pro {best['return_pct']:+.1f}% (after tax {best['after_tax_return_pct']:+.1f}%), "
+          f"{best['id']} {best['return_pct']:+.1f}% (after tax {best['after_tax_return_pct']:+.1f}%), "
           f"max DD {best['max_drawdown_pct']:.1f}%; buy&hold {ev['dataset']['buy_and_hold_pct']:+.1f}%")
 
 

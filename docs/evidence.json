@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-29T18:09:06.373566+00:00",
+ "generated_at": "2026-10-29T22:31:20.432917+00:00",
  "dataset": {
   "source": "Kafka recording of the sandbox stream",
   "tickers": [
@@ -17,7 +17,7 @@
   "days": 500,
   "first_date": "2024-10-25",
   "last_date": "2026-10-23",
-  "news_items": 8125,
+  "news_items": 8126,
   "buy_and_hold_pct": 44.90701444895161
  },
  "costs": {
@@ -42,6 +42,25 @@
   ]
  },
  "strategies": [
+  {
+   "id": "sma_news",
+   "return_pct": 34.378456500000176,
+   "after_tax_return_pct": 30.02606662500018,
+   "max_drawdown_pct": 10.005740597716716,
+   "trades": 508,
+   "fees_paid": 13396.740000000025,
+   "tax_estimate": 43523.89875000002,
+   "avg_utilization_pct": null,
+   "quarters_pct": [
+    8.859448000000093,
+    11.331977000000105,
+    3.076465000000006,
+    9.571234500000013
+   ],
+   "upside_capture": 0.5385428178985715,
+   "downside_capture": -0.23460664442274223,
+   "harvest_sells": null
+  },
   {
    "id": "sma_pro",
    "return_pct": 28.783630500000037,
@@ -336,7 +355,7 @@
   "headlines": 8114,
   "ticker_days": 2925,
   "correlation_next_day": -0.01849363617368585,
-  "conclusion": "News sentiment does not predict next-day returns here (all |t| < 2, correlation ~0). The bot therefore uses news only for context and explanations, never as a trade trigger."
+  "conclusion": "On its own, sentiment does not predict next-day returns (correlation ~0). But a breakout on bad news tends to fail: skipping BUYs when the last 3 days of headlines score -2 or worse adds ~6 points over 500 days and beats 40/40 placebo runs. News never triggers a trade; it can only veto a buy."
  },
  "equity_curves": {
   "dates": [
@@ -595,6 +614,134 @@
     1422117.787452192,
     1418786.3385757955,
     1449070.144489516
+   ],
+   "sma_news": [
+    1000000.0,
+    1000000.0,
+    999860.0,
+    1014149.2600000001,
+    1029983.3500000001,
+    1041419.06,
+    1036539.75,
+    1033102.3700000001,
+    1026963.4900000002,
+    1020638.2800000003,
+    1013678.7400000003,
+    1007040.2300000004,
+    1009705.8900000005,
+    1003426.7700000005,
+    1016541.8600000003,
+    1030974.4600000004,
+    1032591.5500000003,
+    1070697.1900000004,
+    1085998.4700000004,
+    1135927.0100000005,
+    1085227.5700000005,
+    1084373.5600000005,
+    1074798.0900000008,
+    1072224.9100000006,
+    1068670.6400000006,
+    1092938.2600000007,
+    1048337.1900000008,
+    1044408.6300000007,
+    1036808.0200000007,
+    1052970.6700000009,
+    1044373.3200000008,
+    1088594.480000001,
+    1122755.3600000008,
+    1115807.9700000007,
+    1164618.6200000008,
+    1162966.390000001,
+    1138009.6500000008,
+    1137809.020000001,
+    1144825.620000001,
+    1155947.450000001,
+    1155234.7000000011,
+    1167799.060000001,
+    1174629.180000001,
+    1189194.5700000012,
+    1186961.9800000011,
+    1190742.5500000012,
+    1185300.080000001,
+    1182091.5400000012,
+    1191515.5300000012,
+    1200050.7000000011,
+    1212023.410000001,
+    1211029.600000001,
+    1227393.2300000011,
+    1212754.080000001,
+    1224774.920000001,
+    1244457.390000001,
+    1249283.4700000011,
+    1239561.3600000013,
+    1243517.1400000013,
+    1238115.0500000012,
+    1233698.8200000015,
+    1227975.4400000013,
+    1249577.430000001,
+    1254881.0200000014,
+    1235379.9600000014,
+    1234489.5800000015,
+    1229443.5300000012,
+    1220136.1300000015,
+    1217490.8300000015,
+    1232112.9500000016,
+    1249736.1200000015,
+    1258331.8700000015,
+    1249699.6600000015,
+    1253847.5400000014,
+    1245813.5100000014,
+    1253328.4500000016,
+    1263637.3400000012,
+    1263018.6800000016,
+    1264907.5600000015,
+    1277836.9200000016,
+    1261721.1800000016,
+    1256139.1200000015,
+    1265213.5500000014,
+    1250054.9300000016,
+    1267415.1300000013,
+    1276750.3500000015,
+    1264872.8900000015,
+    1264660.3800000015,
+    1261059.5300000012,
+    1253317.7500000014,
+    1250605.1600000013,
+    1243319.1700000016,
+    1295939.1700000013,
+    1270361.5100000016,
+    1258897.0100000012,
+    1255730.0100000012,
+    1247144.4200000013,
+    1242558.7200000011,
+    1257968.9800000014,
+    1279004.555000001,
+    1287983.1150000012,
+    1280505.6450000014,
+    1280281.3550000014,
+    1271735.4350000015,
+    1281439.3750000016,
+    1300211.2450000017,
+    1280636.4750000017,
+    1278134.4450000017,
+    1270969.1250000019,
+    1268785.595000002,
+    1276930.6750000021,
+    1292267.085000002,
+    1324242.1150000019,
+    1327501.2550000018,
+    1350683.165000002,
+    1357895.5350000018,
+    1326258.2750000022,
+    1312716.685000002,
+    1306149.4850000017,
+    1299286.1350000019,
+    1300344.3850000019,
+    1301759.4550000017,
+    1304967.3550000018,
+    1309883.915000002,
+    1322822.8250000018,
+    1343784.5650000018
    ],
    "sma_pro": [
     1000000.0,
@@ -869,11 +1016,19 @@
   },
   {
    "idea": "Account drawdown brake (6%)",
-   "why": "Locks the bot out of recoveries: +2.5% vs +28.8% without it."
+   "why": "Locks the bot out of recoveries: +2.5% vs +34.4% without it."
   },
   {
-   "idea": "News-driven trading or news veto",
-   "why": "No predictive power (see news study)."
+   "idea": "News-driven trades: sell on bad news, buy bigger or earlier on good news",
+   "why": "Each lowered return or failed in one half (Step 2). Only the veto on breakout buys survived."
+  },
+  {
+   "idea": "Entry/exit tweaks: 2-close confirmation, earlier exits, trailing stops, trend and volume filters",
+   "why": "None beat sma_news in both halves; a 6% trailing stop passed but failed at 5% and 7% (Step 3)."
+  },
+  {
+   "idea": "Extra risk limits: stop-loss, exposure cap, max positions, max buys per day",
+   "why": "Stops never trigger before the SMA exit; the limits cost return in one half (Step 4)."
   },
   {
    "idea": "Short selling",
@@ -881,7 +1036,7 @@
   }
  ],
  "chosen": {
-  "id": "sma_pro",
-  "why": "Robust across every 5-12 day window and band tested; captures about a third of rallies but very little of the sell-offs; 1.5x size lifts return with a moderate drawdown; year-end tax-loss harvesting on top."
+  "id": "sma_news",
+  "why": "The SMA8 +/-1.5% band (robust across every 5-12 day window and band tested) at 1.5x size with year-end tax-loss harvesting, plus a news veto: each BUY waits 0.5 s for the day's headlines and is skipped after bad news. Under identical conditions it beat the version without news in 33 of 40 random 100-day periods (scripts/compare_bots.py)."
  }
 }

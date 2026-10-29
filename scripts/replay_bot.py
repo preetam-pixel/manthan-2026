@@ -42,6 +42,7 @@ def run(history: dict, news: list, strategy, days: tuple = None, drop: str = Non
               warm_start=False, strategy_name=getattr(strat, "name", str(strategy)), journal=DecisionJournal())
     bot.startup()
     peak, max_dd, wealth = api.cash, 0.0, api.cash
+    equity = {}
     for i, d in enumerate(dates):
         start = i * DAY_S
         now[0] = start
@@ -63,14 +64,28 @@ def run(history: dict, news: list, strategy, days: tuple = None, drop: str = Non
             step += 1
         p = api.get_portfolio()
         wealth = p["total_wealth"]
+        equity[d] = wealth
         peak = max(peak, wealth)
         max_dd = max(max_dd, (peak - wealth) / peak)
     stats = bot.journal.stats()
-    vetoed = sum(1 for e in bot.journal.recent(2000) if str(e.get("risk_reason") or "").startswith("news veto"))
+    entries = bot.journal.recent(100_000)
+    vetoed = sum(1 for e in entries if str(e.get("risk_reason") or "").startswith("news veto"))
+    gains = [e["realized_gain"] for e in entries if e.get("realized_gain") is not None]
+    curve = list(equity.values())
+    daily = [b / a - 1 for a, b in zip(curve, curve[1:])]
+    mean = sum(daily) / len(daily) if daily else 0.0
+    sd = (sum((x - mean) ** 2 for x in daily) / len(daily)) ** 0.5 if daily else 0.0
+    tax = bot.tax.total_tax()
     return {"return_pct": (wealth / 1_000_000 - 1) * 100, "max_dd_pct": max_dd * 100,
+            "final_wealth": wealth, "after_tax_return_pct": ((wealth - tax) / 1_000_000 - 1) * 100,
+            "tax_estimate": tax, "realized_pnl": p["realized_pnl"], "unrealized_pnl": p["unrealized_pnl"],
+            "sharpe": mean / sd * 252 ** 0.5 if sd else None,
+            "worst_trade": min(gains) if gains else None, "best_trade": max(gains) if gains else None,
+            "win_rate": sum(g > 0 for g in gains) / len(gains) if gains else None,
             "orders": api.orders, "rejected": api.rejected, "charges": api.charges,
             "news_vetoes": vetoed, "decisions": stats["decisions"],
-            "max_latency_s": max(bot.latencies) if bot.latencies else None}
+            "max_latency_s": max(bot.latencies) if bot.latencies else None,
+            "equity_by_date": equity}
 
 
 def compare(history: dict, news: list, strategies: list) -> list:

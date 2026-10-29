@@ -87,12 +87,14 @@ Dashboard (127.0.0.1): status, positions, orders, journal, tax, evidence, Start/
 py -m scripts.record_stream                                   # record the live stream (read-only, no consumer group)
 py -m scripts.build_evidence data/stream_<t>.jsonl            # rebuild docs/evidence.json (dashboard "Evidence" panel)
 py -m scripts.evaluate_strategies history.json                # quick windowed comparison
+py -m scripts.compare_bots data/stream_<t>.jsonl              # old vs new bot, real bot code, identical conditions
 py -m scripts.demo_dashboard data/stream_<t>.jsonl --strategy sma_pro --speed 40 --start   # offline demo / fallback
 ```
 
 ## Documentation
 
 - [docs/JURY_DEFENSE.md](docs/JURY_DEFENSE.md) — the five evaluation pillars, our numbers, likely questions
+- [docs/STEP5_COMPARISON.md](docs/STEP5_COMPARISON.md) — original vs baseline vs improved bot under identical conditions
 - [docs/STRATEGY_EVAL.md](docs/STRATEGY_EVAL.md) — full research log, including failures
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — modules, data flow, safety design
 - [docs/demo_runbook.md](docs/demo_runbook.md) — live-run checklist and demo script

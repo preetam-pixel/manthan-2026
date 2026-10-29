@@ -165,8 +165,9 @@
     /* ---------------- Strategy evidence ---------------- */
 
     const VERDICT = {
-        sma_pro: ["chosen", "Chosen"],
-        sma_band: ["baseline", "Baseline"],
+        sma_news: ["chosen", "Chosen"],
+        sma_pro: ["baseline", "Previous"],
+        sma_band: ["baseline", "Original"],
     };
 
     function verdictFor(s) {
@@ -204,15 +205,17 @@
 
         const curves = ev.equity_curves || {};
         const series = curves.series || {};
-        const palette = { sma_pro: cssVar("--green"), sma_band: cssVar("--blue"), buy_and_hold: cssVar("--subtle") };
-        const labels = { sma_pro: "sma_pro (chosen)", sma_band: "sma_band (original)", buy_and_hold: "Buy & hold, equal weight" };
+        const palette = { sma_news: cssVar("--green"), sma_pro: cssVar("--amber"), sma_band: cssVar("--blue"),
+                          buy_and_hold: cssVar("--subtle") };
+        const labels = { sma_news: "sma_news (chosen)", sma_pro: "sma_pro (no news)", sma_band: "sma_band (original)",
+                         buy_and_hold: "Buy & hold, equal weight" };
         drawChart("evidence-equity-chart", {
             type: "line",
             data: {
                 labels: curves.dates || [],
                 datasets: Object.keys(series).map(key => ({
                     label: labels[key] || key, data: series[key], borderColor: palette[key],
-                    backgroundColor: palette[key], pointRadius: 0, borderWidth: key === "sma_pro" ? 2.5 : 1.5,
+                    backgroundColor: palette[key], pointRadius: 0, borderWidth: key === "sma_news" ? 2.5 : 1.5,
                     borderDash: key === "buy_and_hold" ? [5, 4] : []
                 }))
             },
@@ -233,7 +236,8 @@
                 labels: (q.labels || []).map((l, i) => `Q${i + 1}`),
                 datasets: [
                     { label: "Market (buy & hold)", data: q.market_pct || [], backgroundColor: cssVar("--subtle") },
-                    { label: "sma_pro", data: pick("sma_pro"), backgroundColor: cssVar("--green") },
+                    { label: "sma_news", data: pick("sma_news"), backgroundColor: cssVar("--green") },
+                    { label: "sma_pro", data: pick("sma_pro"), backgroundColor: cssVar("--amber") },
                     { label: "sma_band", data: pick("sma_band"), backgroundColor: cssVar("--blue") }
                 ]
             },
