@@ -23,6 +23,9 @@ py -m src.app --live --dashboard         # dashboard at http://127.0.0.1:8080/  
 py -m pytest                             # 160+ unit tests, no network needed
 ```
 
+The dashboard has eight pages (Overview, Market, Portfolio, Activity, Journal, Tax & Costs, Evidence,
+Strategy & Controls): use the side menu or press keys 1–8. Each page has its own link, e.g. `#portfolio`.
+
 `.env` (gitignored) needs `GATEWAY`, `BROKER`, `HACKATHON_USERNAME`, `BOT_ACCESS_TOKEN`.
 Optional: `STRATEGY` (default `sma_pro`), `START_TRADING=1`, `DASHBOARD_PORT`, `WARM_START=0`.
 

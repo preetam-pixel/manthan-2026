@@ -1,0 +1,607 @@
+/* Multi-page layout: sticky header, side navigation, one page at a time.
+   Also styles the footer, controls, cost cards and confirm dialog.
+   Reuses the design tokens defined in style.css. */
+
+
+/* ============================================================
+   1. SHELL
+   ============================================================ */
+
+.app-shell {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    align-items: start;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: calc(100vh - var(--header-h, 84px));
+}
+
+.content .dashboard {
+    flex: 1;
+    gap: 0;
+}
+
+
+/* ============================================================
+   2. SIDE NAVIGATION
+   ============================================================ */
+
+.side-nav {
+    position: sticky;
+    top: var(--header-h, 84px);
+    z-index: 10;
+
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    height: calc(100vh - var(--header-h, 84px));
+    padding: 18px 14px 16px;
+    overflow-y: auto;
+
+    border-right: 1px solid var(--border);
+    background: rgba(9, 15, 30, 0.55);
+}
+
+.nav-group-label {
+    padding: 14px 12px 6px;
+
+    color: var(--subtle);
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.11em;
+}
+
+.nav-group-label:first-child {
+    padding-top: 4px;
+}
+
+.nav-link {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    gap: 11px;
+
+    min-height: 40px;
+    padding: 9px 12px;
+
+    border: 1px solid transparent;
+    border-radius: 10px;
+
+    color: var(--muted);
+
+    font-size: 13px;
+    font-weight: 600;
+
+    transition:
+        color 0.15s ease,
+        background 0.15s ease,
+        border-color 0.15s ease;
+}
+
+.nav-link svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.nav-link:hover {
+    color: var(--text);
+    background: rgba(56, 189, 248, 0.06);
+}
+
+.nav-link.active {
+    color: var(--text);
+
+    border-color: rgba(56, 189, 248, 0.28);
+    background:
+        linear-gradient(
+            90deg,
+            rgba(56, 189, 248, 0.16),
+            rgba(56, 189, 248, 0.04)
+        );
+}
+
+.nav-link.active::before {
+    content: "";
+
+    position: absolute;
+    top: 9px;
+    bottom: 9px;
+    left: -15px;
+
+    width: 3px;
+
+    border-radius: 0 3px 3px 0;
+    background: var(--blue);
+
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+}
+
+.nav-link.active svg {
+    color: var(--blue);
+}
+
+.nav-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.nav-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    margin-left: auto;
+}
+
+.nav-key {
+    display: inline-grid;
+    place-items: center;
+
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+
+    border: 1px solid var(--border);
+    border-radius: 5px;
+
+    color: var(--subtle);
+
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.nav-link:hover .nav-key,
+.nav-link.active .nav-key {
+    color: var(--muted);
+    border-color: var(--border-strong);
+}
+
+.nav-badge {
+    display: inline-grid;
+    place-items: center;
+
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+
+    border-radius: 99px;
+
+    color: #06131F;
+    background: var(--blue);
+
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.nav-status {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+
+    margin-top: auto;
+    padding: 12px 14px;
+
+    border: 1px solid var(--border);
+    border-radius: 12px;
+
+    color: var(--text);
+    background: var(--surface-2);
+}
+
+.nav-status:hover {
+    color: var(--text);
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+.nav-status-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+}
+
+.nav-status-text small {
+    color: var(--subtle);
+
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.11em;
+}
+
+.nav-status-text strong {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+}
+
+.nav-status.running .status-dot {
+    background: var(--green);
+    box-shadow: 0 0 0 3px var(--green-bg), 0 0 12px rgba(52, 211, 153, 0.35);
+}
+
+.nav-status.stopped .status-dot {
+    background: var(--amber);
+    box-shadow: 0 0 0 3px var(--amber-bg);
+}
+
+.nav-status.offline .status-dot {
+    background: var(--red);
+    box-shadow: 0 0 0 3px var(--red-bg);
+}
+
+.nav-status.running {
+    border-color: rgba(52, 211, 153, 0.28);
+}
+
+
+/* ============================================================
+   3. PAGES
+   ============================================================ */
+
+.page {
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+
+    outline: none;
+}
+
+.page:not([hidden]) {
+    animation: page-in 0.22s ease;
+}
+
+@keyframes page-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Sections that used to sit in one long page carried top margins. */
+.page .simulation-progress,
+.page > section,
+.page .journal-section,
+.page .evidence-section {
+    margin: 0;
+}
+
+.page .section-heading {
+    margin-bottom: 16px;
+}
+
+.page .activity-feed {
+    max-height: calc(100vh - var(--header-h, 84px) - 260px);
+    min-height: 320px;
+}
+
+/* Global input styles stretch checkboxes and selects to full width. */
+.pause-feed-label {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.pause-feed-label input {
+    width: auto;
+    padding: 0;
+}
+
+.activity-filters > label {
+    margin-bottom: 0;
+}
+
+.activity-filters select {
+    width: auto;
+    min-width: 150px;
+    padding: 7px 11px;
+}
+
+/* News can run to hundreds of headlines: scroll inside its own panel. */
+.page .news-list {
+    max-height: 620px;
+    overflow-y: auto;
+    padding: 4px 6px 4px 0;
+}
+
+
+/* ============================================================
+   4. CONTROLS, COST CARDS (previously unstyled)
+   ============================================================ */
+
+.trading-control {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.control-message {
+    min-height: 20px;
+    margin: 14px 0 6px;
+
+    color: var(--amber);
+    font-size: 12px;
+}
+
+.control-description {
+    margin: 0;
+
+    color: var(--subtle);
+    font-size: 12px;
+}
+
+.strategy-details {
+    margin-top: 18px;
+}
+
+.strategy-details p {
+    margin: 6px 0 0;
+
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.strategy-details pre {
+    margin: 8px 0 0;
+}
+
+.strategy-change-banner {
+    margin-top: 16px;
+    padding: 11px 14px;
+
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: var(--radius-sm);
+
+    color: #FDE68A;
+    background: var(--amber-bg);
+
+    font-size: 12px;
+}
+
+.costs-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 15px;
+}
+
+.cost-card {
+    padding: 18px 20px;
+
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(25, 38, 62, 0.97),
+            rgba(17, 28, 48, 0.98)
+        );
+
+    box-shadow: var(--shadow);
+}
+
+.cost-label {
+    color: var(--muted);
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+}
+
+.cost-card h3 {
+    margin: 10px 0 0;
+
+    color: var(--text);
+
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+}
+
+
+/* ============================================================
+   5. FOOTER
+   ============================================================ */
+
+.app-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    padding: 16px 30px;
+
+    border-top: 1px solid var(--border-soft);
+
+    color: var(--subtle);
+    font-size: 11px;
+}
+
+.footer-left,
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.footer-logo {
+    color: var(--muted);
+
+    font-family: var(--heading-font);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+
+/* ============================================================
+   6. CONFIRM DIALOG
+   ============================================================ */
+
+dialog {
+    width: min(440px, calc(100vw - 32px));
+    padding: 0;
+
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+
+    color: var(--text);
+    background: var(--surface);
+
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+dialog::backdrop {
+    background: rgba(4, 8, 16, 0.65);
+    backdrop-filter: blur(4px);
+}
+
+.dialog-content {
+    padding: 24px;
+}
+
+.dialog-content h2 {
+    margin: 0 0 10px;
+
+    font-family: var(--heading-font);
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.dialog-content p {
+    margin: 0 0 8px;
+
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+
+    margin-top: 20px;
+}
+
+
+/* ============================================================
+   7. RESPONSIVE: navigation becomes a scrollable tab bar
+   ============================================================ */
+
+@media (max-width: 1200px) {
+    .costs-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .app-footer {
+        padding: 16px 22px;
+    }
+}
+
+@media (max-width: 900px) {
+    .app-shell {
+        display: block;
+    }
+
+    .content {
+        min-height: 0;
+    }
+
+    .side-nav {
+        top: 0;
+        z-index: 15;
+
+        flex-direction: row;
+        gap: 6px;
+
+        height: auto;
+        padding: 10px 16px;
+        overflow-x: auto;
+        overflow-y: hidden;
+
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        background: rgba(9, 15, 30, 0.94);
+
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+
+        scrollbar-width: none;
+    }
+
+    .side-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-group-label,
+    .nav-key,
+    .nav-status {
+        display: none;
+    }
+
+    .nav-link {
+        flex: 0 0 auto;
+        min-height: 36px;
+        padding: 7px 12px;
+    }
+
+    .nav-link.active::before {
+        top: auto;
+        right: 12px;
+        bottom: -11px;
+        left: 12px;
+
+        width: auto;
+        height: 2px;
+
+        border-radius: 2px 2px 0 0;
+    }
+
+    .nav-meta {
+        margin-left: 2px;
+    }
+
+    .page .activity-feed {
+        max-height: 520px;
+    }
+}
+
+@media (max-width: 600px) {
+    .costs-grid,
+    .trading-control {
+        grid-template-columns: 1fr;
+    }
+
+    .app-footer {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 16px;
+    }
+
+    .footer-right {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+}

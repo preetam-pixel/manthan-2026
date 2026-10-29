@@ -2291,6 +2291,15 @@ function renderPriceChart() {
     );
 
 
+    /* Colours match the HTML legend above the chart */
+
+    const palette = getComputedStyle(document.documentElement);
+
+    const color = (name, fallback) => palette.getPropertyValue(name).trim() || fallback;
+
+    const bandColor = "#74859C";
+
+
     const datasets = [
 
         {
@@ -2300,6 +2309,14 @@ function renderPriceChart() {
             data: points.map(
                 point => point.close ?? null
             ),
+
+            borderColor: color("--blue", "#38BDF8"),
+
+            backgroundColor: color("--blue", "#38BDF8"),
+
+            borderWidth: 2,
+
+            pointRadius: 0,
 
             tension: 0.2
 
@@ -2313,6 +2330,14 @@ function renderPriceChart() {
                 point => point.sma8 ?? null
             ),
 
+            borderColor: color("--purple", "#A78BFA"),
+
+            backgroundColor: color("--purple", "#A78BFA"),
+
+            borderWidth: 1.5,
+
+            pointRadius: 0,
+
             tension: 0.2
 
         },
@@ -2324,6 +2349,12 @@ function renderPriceChart() {
             data: points.map(
                 point => point.upper ?? null
             ),
+
+            borderColor: bandColor,
+
+            backgroundColor: bandColor,
+
+            borderWidth: 1,
 
             borderDash: [5, 5],
 
@@ -2338,6 +2369,12 @@ function renderPriceChart() {
             data: points.map(
                 point => point.lower ?? null
             ),
+
+            borderColor: bandColor,
+
+            backgroundColor: bandColor,
+
+            borderWidth: 1,
 
             borderDash: [5, 5],
 
@@ -2389,7 +2426,14 @@ function renderPriceChart() {
     renderLineChart(
         "price-chart",
         labels,
-        datasets
+        datasets,
+        {
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
     );
 
 }
