@@ -163,3 +163,29 @@ and 0.5 s wait included, judged by the Step 1 rule against `sma_news` (+34.4%, D
 **Decision: no change.** The only pass, a 6% trailing stop (+0.7 pp), fails at 5% and 7% and with the
 re-buy fixed, so it is luck at one setting, not an edge. Filters that wait for more confirmation (2 closes,
 trend, volume, up day) cut drawdown but cut return more and weaken the second half. `sma_news` stays live.
+
+## Step 4: risk management on top of sma_news (2026-10-30)
+Profile of `sma_news` over 500 days (real bot code): charges Rs 13,397 = 3.9% of profit; invested share of
+wealth median 43%, 90th percentile 75%, max 97%; open positions median 5, max 10.
+
+New rules tested (`py -m scripts.risk_study data/stream_<t>.jsonl`), same rule as Steps 2-3:
+
+| rule (on top of sma_news) | 500 days | max DD | ret/DD H1 / H2 | worst 100-day window | no PLNX | verdict |
+|---|---|---|---|---|---|---|
+| none (`sma_news`, live) | +34.4% | 10.0% | 2.58 / 1.94 | +1.7% | +25.3% | — |
+| stop-loss 5% below entry | +34.6% | 10.0% | 2.59 / 2.00 | +1.7% | +25.5% | triggers once; no effect |
+| stop-loss 8% / 12% below entry | identical | | | | | never triggers: the SMA exit always fires first |
+| max exposure 60% / 75% / 90% of wealth | +31.7 / +35.1 / +34.1% | 9.6-10.0% | H2 0.19 / 1.00 / 1.89 | -1.4% / +1.5% / +1.2% | lower | fail |
+| max 6 / 8 open positions | +28.9 / +35.6% | 10.3 / 9.9% | 2.38 / 1.28, 2.68 / 2.09 | +1.8% / +1.6% | +18.5 / +24.9% | fail |
+| max 2 / 3 new buys per day | +30.4 / +31.5% | 9.8-10.0% | worse H1 | +1.8% / +1.7% | lower | fail |
+| drawdown brake 6% / 8% | +3.7% / identical | 8.7% | 0.42 / 1.94 | | | 6% locks the bot out; 8% never triggers |
+
+Live audit, 15 sessions on 2026-10-30 (1,153 orders): all filled, 0 exchange rejections, 0 duplicate
+orders (same stock, side and day), 9 unaffordable buys stopped by our own cash check before reaching the
+exchange, 6 blocked while the simulation was not running, 1 on stale data. Decision-to-answer latency:
+median 0.12 s, 95th percentile 0.95 s; 4 orders over 3 s, all in early sessions while the exchange answered
+slowly (the risk gate never sends on prices older than 3 s).
+
+**Decision: no new risk rule.** The existing controls (per-stock cap, cash check, duplicate and in-flight
+guards, uncertain-order freeze, fresh-data and stage checks, rate limit) do the work; the added limits either
+never trigger or cost return in one half.

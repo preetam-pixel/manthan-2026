@@ -22,8 +22,9 @@ NEWS_AT_S = 0.15       # headlines arrive ~150 ms after the prices
 TIMER_S = 0.1
 
 
-def run(history: dict, news: list, strategy, days: tuple = None, drop: str = None) -> dict:
-    """``strategy``: a registered name, or a factory returning a strategy object (for research)."""
+def run(history: dict, news: list, strategy, days: tuple = None, drop: str = None, risk=None) -> dict:
+    """``strategy``: a registered name, or a factory returning a strategy object (for research).
+    ``risk``: optional factory returning a RiskManager to use instead of the default one."""
     dates = sorted({b["date"] for bars in history.values() for b in bars})
     if days:
         dates = dates[days[0]:days[1]]
@@ -37,7 +38,7 @@ def run(history: dict, news: list, strategy, days: tuple = None, drop: str = Non
     now = [0.0]
     api = SimulatedAPI(tickers, total_days=len(dates), interval_seconds=DAY_S)
     strat = create(strategy) if isinstance(strategy, str) else strategy()
-    bot = Bot(api, strategy=strat, log=lambda *a: None, clock=lambda: now[0],
+    bot = Bot(api, strategy=strat, risk=risk() if risk else None, log=lambda *a: None, clock=lambda: now[0],
               warm_start=False, strategy_name=getattr(strat, "name", str(strategy)), journal=DecisionJournal())
     bot.startup()
     peak, max_dd, wealth = api.cash, 0.0, api.cash
