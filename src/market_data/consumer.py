@@ -1,7 +1,36 @@
+"""Kafka event parsing for market.ticks / market.news (no I/O here)."""
+from typing import Optional
+
+TOPIC_TICKS = "market.ticks"
+TOPIC_NEWS = "market.news"
+EVENT_PREFLIGHT = "preflight_tick"
+EVENT_PRICE = "price_tick"
+
+
+def event_type(event: dict) -> Optional[str]:
+    return event.get("event_type") or event.get("event")
+
+
+def is_preflight(event: dict) -> bool:
+    return event_type(event) == EVENT_PREFLIGHT
+
+
+def is_price_tick(topic: str, event: dict) -> bool:
+    return topic == TOPIC_TICKS and event_type(event) == EVENT_PRICE
+
+
+def preflight_seq(event: dict) -> Optional[int]:
+    """Heartbeat sequence number: top-level ``seq``, else ``data.seq``."""
+    seq = event.get("seq")
+    if seq is None:
+        seq = (event.get("data") or {}).get("seq")
+    return seq
+
+
 def normalize_tick(event: dict) -> dict:
     data = event.get("data") or {}
     return {
-        "event_type": event.get("event_type") or event.get("event"),
+        "event_type": event_type(event),
         "timestamp": event.get("timestamp"),
         "simulated_date": event.get("simulated_date"),
         "ticker": data.get("ticker"),
