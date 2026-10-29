@@ -244,3 +244,24 @@ def test_dotenv_tolerates_spaces_quotes_and_export(tmp_path, monkeypatch):
     assert "C_KEY" not in os.environ and "D_KEY" not in os.environ
     for k in ("A_KEY", "B_KEY"):
         monkeypatch.delenv(k, raising=False)
+
+
+def test_heartbeat_burst_is_throttled_and_failures_retry_next_tick():
+    now = [0.0]
+    api = FakeAPI()
+    bot = Bot(api, log=lambda *a: None, clock=lambda: now[0])
+    pre = lambda n: {"event_type": "preflight_tick", "seq": n, "data": {"seq": n}}
+    for n in range(10):                              # burst inside one second
+        now[0] += 0.1
+        bot.handle_message("market.ticks", pre(n))
+    assert len(api.heartbeats) == 1
+    now[0] += 2.5
+    bot.handle_message("market.ticks", pre(11))
+    assert api.heartbeats[-1] == 11 and len(api.heartbeats) == 2
+    api.fail_heartbeat = True
+    now[0] += 2.5
+    bot.handle_message("market.ticks", pre(12))      # fails, must not mark as acked
+    api.fail_heartbeat = False
+    now[0] += 0.1
+    bot.handle_message("market.ticks", pre(13))      # retried immediately
+    assert api.heartbeats[-1] == 13

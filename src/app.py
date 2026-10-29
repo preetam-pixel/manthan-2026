@@ -22,6 +22,7 @@ from src.strategy.sma import BAND, SMA_N, SMAStrategy
 
 STAGE_CACHE_S = 2.5          # /stage is polled at most this often
 WARM_START_PER_PREFLIGHT = 5  # history fetches per preflight tick (keeps ACKs prompt)
+HEARTBEAT_MIN_INTERVAL_S = 2.0  # one ACK per 15 s is required; bursts of preflight ticks must not flood the API
 HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading closes
 
 
@@ -59,6 +60,7 @@ class Bot:
         self._stage_at: Optional[float] = None
         self._warm_pending: list[str] = []
         self._last_date: dict[str, str] = {}
+        self._last_ack_at: Optional[float] = None
         self.latencies: list[float] = []
 
     # ---- startup ----------------------------------------------------
@@ -137,11 +139,14 @@ class Bot:
     def _on_preflight(self, event: dict) -> None:
         seq = preflight_seq(event)
         if isinstance(seq, int) and not isinstance(seq, bool):
-            try:
-                self.api.acknowledge_preflight(seq)
-                self.log("heartbeat ack", seq)
-            except Exception as exc:
-                self.log("heartbeat error", exc)
+            now = self.clock()
+            if self._last_ack_at is None or now - self._last_ack_at >= HEARTBEAT_MIN_INTERVAL_S:
+                try:
+                    self.api.acknowledge_preflight(seq)
+                    self._last_ack_at = now      # only after success, so failures retry on the next tick
+                    self.log("heartbeat ack", seq)
+                except Exception as exc:
+                    self.log("heartbeat error", exc)
         else:
             self.log("preflight without usable seq", event)
         self._load_universe()
