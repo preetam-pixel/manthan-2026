@@ -16,3 +16,7 @@ pytest
 ```
 
 `python -m src.app` is a safe stub. Do not point it at the simulator until reviewed.
+
+## Update: wired runtime
+`python -m src.app --live` runs the full loop (Kafka -> SMA strategy -> risk gate -> execution -> reconciliation). Without `--live` it only prints a hint. Tokens come from `BOT_ACCESS_TOKEN` or `TEAM_JWT_TOKEN`.
+Status: unit-tested with fakes only (`pytest`); **not yet run against the live simulator or Kafka**. Do a sandbox run during the development stage before relying on it.
