@@ -99,7 +99,9 @@ class Bot:
             return self.sim_running
         try:
             stage = self.api.get_stage()
-            self.sim_running = stage.get("stage") == "simulation" and stage.get("status") == "RUNNING"
+            # live /stage reports lowercase status ("running"); the PDF shows uppercase
+            status = str(stage.get("status") or "").upper()
+            self.sim_running = str(stage.get("stage") or "").lower() == "simulation" and status == "RUNNING"
         except Exception as exc:
             self.sim_running = False   # uncertain state: do not trade
             self.log("stage error", exc)

@@ -203,3 +203,10 @@ def test_date_going_backwards_resets_ticker_history():
     bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-06-01"))
     bot.handle_message("market.ticks", tick("AAA", 100.0, "2021-01-01"))   # sandbox looped
     assert len(bot.strategy.closes["AAA"]) == 1
+
+
+def test_stage_status_is_case_insensitive():
+    bot, api = started(FakeAPI(stage=("simulation", "running")))
+    assert bot.refresh_stage(force=True) is True
+    bot, api = started(FakeAPI(stage=("development", "running")))
+    assert bot.refresh_stage(force=True) is False
