@@ -69,3 +69,33 @@ Data: `scripts/record_stream` captured all 500 days for 10 stocks and 8,125 head
 - **Tax-loss harvesting** before 31 March: +0.6 pp; small because positions are short-lived.
 - **Rejected:** regime allocator (+0.4%, DD 10.8%, robust failure across SMA30-80), drawdown brake (locks the bot out: +2.5%), news trading/veto (no predictive power: corr -0.018, all |t| < 2), shorting (downtrends rebounded).
 - Earlier sections of this file reflect the 275-day study and are kept for the record; where they differ, this section supersedes them.
+
+## Stress test of rule changes (2026-10-30)
+Goal: find a change to the SMA8 ±1.5% rule that beats it on every check, not just on the full 500 days.
+Checks: both 250-day halves, five separate 100-day windows, the whole run without PLNX (the +338% stock),
+leave-one-stock-out (worst case of the 10), Sharpe ratio per half, and neighbouring parameter values.
+
+**The rule does not depend on one lucky stock.** Without PLNX, sma_band still makes +12.2% (DD 6.2%) and
+sma_pro +19.5% (DD 9.0%); removing any other single stock hurts less. All five 100-day windows are positive.
+
+| change tested (on top of SMA8 ±1.5%) | result | verdict |
+|---|---|---|
+| Trailing stop 5-12% from the best close (with and without re-arm) | ±0.5 pp; 8% and wider never trigger | no effect |
+| Volatility-scaled size | lower DD only when second buys are allowed; one-buy version loses return | not robust |
+| Buy only after 2 closes above the band | DD 7.1% → 5.1% at SMA8 ±1.5%, but worse at SMA5 ±2%, SMA8 ±2%, all SMA12; 3 closes collapses | fragile, rejected |
+| Exit at the SMA instead of 1.5% below | DD 7.1% → 5.2%, Sharpe first half 1.72 → 1.96, **second half 0.44 → 0.21**; exit 0.5% below brings DD back to 10% | not robust, rejected |
+| Wider exit band (2.5%, 3.5%) | lower return, larger worst trade | rejected |
+| Long-term trend filter (SMA20 / SMA50) | fewer trades, lower return, second half negative with SMA50 | rejected |
+| Cooldown after a losing exit (3/5/10 days) | lower return | rejected |
+| Adding to winners only (+3% / +6%) | higher return with higher DD; return/DD worse | rejected |
+
+| sizing (same rule) | return | max DD | Sharpe | Sharpe H1 / H2 |
+|---|---|---|---|---|
+| 50k per buy, 1L cap (`sma_band`) | +17.9% | 7.1% | 1.06 | 1.72 / 0.44 |
+| 75k, one buy | +21.0% | 8.6% | 1.12 | 1.88 / 0.35 |
+| 75k per buy, 1.5L cap (`sma_pro`) | +28.2% | 10.2% | 1.13 | 1.69 / 0.37 |
+| 1L, one buy | +28.4% | 11.0% | 1.15 | 1.90 / 0.36 |
+
+**Conclusion.** No rule change beat the original SMA8 ±1.5% band on every check; each one that helped in one
+half hurt in the other. Size is the only reliable dial, and it moves return and drawdown together (Sharpe ≈ 1.1
+at every size). We keep the rule and choose size by the drawdown we accept.
