@@ -23,9 +23,9 @@ STARTING_CAPITAL = 1_000_000.0
 MAX_BODY = 2048
 
 STRATEGY_INFO = {
-    "sma_pro": ("SMA8 band PRO (recommended)", "SMA8 +/-1.5% rule at 1.5x size (Rs 75k per trade, Rs 1.5L cap) with year-end "
+    "sma_pro": ("SMA8 band PRO (no news)", "SMA8 +/-1.5% rule at 1.5x size (Rs 75k per trade, Rs 1.5L cap) with year-end "
                 "tax-loss harvesting. 500-day replay: +28.8%, 10.5% max drawdown, +25.4% after tax.", True),
-    "sma_news": ("SMA8 band PRO + news veto", "sma_pro, but each BUY waits ~0.5 s for that day's headlines and is "
+    "sma_news": ("SMA8 band PRO + news veto (recommended)", "sma_pro, but each BUY waits ~0.5 s for that day's headlines and is "
                  "skipped if the stock's last 3 days of news score -2 or worse. 500-day replay: +34% vs +28%, "
                  "better in both halves; beats 40/40 placebo runs.", True),
     "sma_band": ("SMA8 band (original)", "Original rule: buy 1.5% above the 8-day average, sell 1.5% below. "

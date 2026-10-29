@@ -50,8 +50,8 @@ def bot_with(strategy=None, api=None, clock=lambda: 0.0, **kw):
 
 
 # ---- strategy defaults and risk cap ------------------------------------------
-def test_default_strategy_is_sma_pro_and_original_is_unchanged():
-    assert DEFAULT == "sma_pro"
+def test_default_strategy_is_sma_news_and_sma_pro_and_original_are_unchanged():
+    assert DEFAULT == "sma_news"
     pro, base = create("sma_pro"), create("sma_band")
     assert (pro.notional, pro.max_position_value, pro.tax_harvest) == (75_000, 150_000, True)
     assert (base.n, base.band, base.notional, base.max_position_value) == (8, 0.015, 50_000, 100_000)

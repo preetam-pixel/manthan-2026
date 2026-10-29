@@ -23,7 +23,8 @@ We recorded the whole stream (500 days × 10 stocks, 8,125 headlines) and replay
 | Momentum (breakout, relative strength, adaptive bands) | 20-day trends reverse; all near zero or negative | Rejected |
 | Dip/laggard ensemble | Best on the first 275 days, −0.04% on the 208 days it never saw | Rejected (overfit) |
 | Market-regime allocator | +0.4% with 10.8% drawdown at every setting | Rejected |
-| News sentiment (8,124 headlines) | Correlation with next-day return −0.018; all \|t\| < 2 | News = context only |
+| News sentiment alone (8,124 headlines) | Correlation with 1-10 day returns −0.01 to −0.03 | Not a trade trigger |
+| News veto on breakout buys (same-day headlines) | +34.4% vs +28.8%, better in both halves, beats 40/40 placebo runs | **Live (`sma_news`)** |
 | Account drawdown brake | Locks the bot out of recoveries (+2.5% vs +28.8%) | Rejected |
 | SMA band family (windows 5–12, bands 1–2.5%) | Positive in every cell; 20-day fails | **Core rule** |
 
