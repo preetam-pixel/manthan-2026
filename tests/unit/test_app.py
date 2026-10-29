@@ -230,3 +230,17 @@ def test_tick_log_shows_distance_from_trigger():
     bot, api = started()
     bot.handle_message("market.ticks", tick("AAA", 100.5, "2021-02-01"))
     assert any("vs SMA8" in l and "+0.50%" in l for l in bot.api_logs)
+
+
+def test_dotenv_tolerates_spaces_quotes_and_export(tmp_path, monkeypatch):
+    from src.app import _load_dotenv
+    f = tmp_path / ".env"
+    f.write_text('A_KEY= spaced \nexport B_KEY="quoted"\nC_KEY=\n# D_KEY=x\n', encoding="utf-8")
+    for k in ("A_KEY", "B_KEY", "C_KEY", "D_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    _load_dotenv(str(f))
+    import os
+    assert os.environ["A_KEY"] == "spaced" and os.environ["B_KEY"] == "quoted"
+    assert "C_KEY" not in os.environ and "D_KEY" not in os.environ
+    for k in ("A_KEY", "B_KEY"):
+        monkeypatch.delenv(k, raising=False)

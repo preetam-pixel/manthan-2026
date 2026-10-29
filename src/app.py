@@ -239,7 +239,10 @@ def _load_dotenv(path: str = ".env") -> None:
         for line in open(path, encoding="utf-8"):
             if "=" in line and not line.lstrip().startswith("#"):
                 k, v = line.strip().split("=", 1)
-                os.environ.setdefault(k, v)
+                k = k.strip().removeprefix("export ").strip()
+                v = v.strip().strip('"').strip("'")   # tolerate "KEY= value" and quoted values
+                if v:
+                    os.environ.setdefault(k, v)
 
 
 def _safe_json(raw: bytes):
