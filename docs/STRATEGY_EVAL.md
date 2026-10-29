@@ -43,7 +43,7 @@ Source: `GET /stocks/:ticker/history` from the test simulation. Costs: Rs 20 bro
 - The reversal effect is **not statistically significant** (t ~0.3-1.0, need ~2) and not stable across sub-periods. Laggards' average 5-day gain (~+0.14%) is about the cost of a round trip (~0.11%).
 - **ensemble** was profitable in all three windows, but: it was assembled *after* looking at this data, has only 33 round trips, and the live run uses a different period. Treat as promising, **not proven**. Expect modest results; its main value is low drawdown and low turnover.
 - The news filter (entry veto only) cannot be backtested: no historical news is available from the API. It is unit-tested only.
-- Reproduce: `py scripts/evaluate_strategies.py history.json`.
+- Reproduce: `py -m scripts.evaluate_strategies history.json`.
 
 ## Leaderboard comparison (test run) and what it implies
 Top-10 teams in the test run reported total wealth Rs 11.5L - 18.2L (+15% to +88%), 82-98% cash utilization for the leaders, 0 errors, 0.5-3.7 s decision time, taxes up to Rs 63k. Our bot was not on that list.

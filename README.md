@@ -30,3 +30,13 @@ All strategies pass through the same risk gate. In the live run (stage `simulati
 
 ### Disciplined strategies (opt-in via `STRATEGY=`)
 `ensemble` (recommended candidate), `mean_reversion`, `trend_pullback`, `laggard_reversion`; plus `breakout`, `relative_strength` and `adaptive`, which **lost money on the real history and are not recommended**. All share a discipline layer: max 4 open names, volatility-scaled size, 3-bar minimum hold, 3-bar re-entry cooldown, ATR trailing hard stop, breadth and chaos-volatility gates, friction check, and a news veto on entries (never a trade trigger). They need ~41 daily bars of history (warm-started from `/stocks/:ticker/history`, 90 calendar days); if the live run offers no pre-run history they wait ~41 days before trading. See `docs/STRATEGY_EVAL.md` for results and limits.
+
+## Recording the stream (for better backtests)
+Read-only, safe next to the bot (no consumer group, never commits offsets):
+```bash
+py -m scripts.record_stream                 # record until Ctrl+C  -> data/stream_<time>.jsonl
+py -m scripts.record_stream --seconds 600   # or for a fixed time
+py -m scripts.record_stream --export data/stream_X.jsonl history.json news.json
+py -m scripts.evaluate_strategies history.json
+```
+Recordings are gitignored (`data/`). The sandbox loops the same days, so about 83 minutes captures a full 500-day loop; the loader keeps one loop (`loop_count`) so repeated dates are never mixed.
