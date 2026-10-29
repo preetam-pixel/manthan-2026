@@ -18,7 +18,7 @@ from src.market_data.consumer import (TOPIC_NEWS, TOPIC_TICKS, is_preflight,
 from src.news.consumer import format_news
 from src.portfolio.state import PortfolioState
 from src.risk.manager import RiskManager
-from src.strategy.sma import SMA_N, SMAStrategy
+from src.strategy.sma import BAND, SMA_N, SMAStrategy
 
 STAGE_CACHE_S = 2.5          # /stage is polled at most this often
 WARM_START_PER_PREFLIGHT = 5  # history fetches per preflight tick (keeps ACKs prompt)
@@ -70,6 +70,17 @@ class Bot:
         except Exception as exc:  # network / schema problems: stay un-synced, risk blocks orders
             self.log("portfolio sync failed", exc)
             return False
+
+    def startup(self) -> None:
+        """Sync portfolio, discover the universe and warm-start every ticker.
+
+        Preflight ticks only exist before the live run; the development
+        sandbox never sends them, so this must not depend on one.
+        """
+        self.sync_portfolio()
+        self._load_universe()
+        while self._warm_pending:
+            self._warm_some()
 
     def _load_universe(self) -> None:
         if self.universe is not None:
@@ -155,7 +166,17 @@ class Bot:
             self._last_date[ticker] = date
 
         self._reconcile_uncertain()
+        if self.universe is None:
+            self._load_universe()
+        if not self.portfolio.synced:
+            self.sync_portfolio()
         ts = _event_time(event)
+        history = self.strategy.closes.get(ticker)
+        if history is not None and len(history) == SMA_N:
+            sma = sum(history) / SMA_N
+            self.log(f"  {ticker} vs SMA{SMA_N}: {(float(close) / sma - 1):+.2%} (trigger +/-{BAND:.1%})")
+        else:
+            self.log(f"  {ticker} warming up {len(history) if history is not None else 0}/{SMA_N}")
         signal = self.strategy.on_close(ticker, float(close), self.portfolio.quantity(ticker), ts)
         if signal is None:
             return
@@ -247,7 +268,7 @@ def run() -> None:
         value_deserializer=_safe_json,
     )
     bot = Bot(api, warm_start=os.environ.get("WARM_START", "1") != "0")
-    bot.sync_portfolio()
+    bot.startup()
     _log("Connected to Kafka. Listening...")
     for message in consumer:
         bot.handle_message(message.topic, message.value)

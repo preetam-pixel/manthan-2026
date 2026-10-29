@@ -210,3 +210,23 @@ def test_stage_status_is_case_insensitive():
     assert bot.refresh_stage(force=True) is True
     bot, api = started(FakeAPI(stage=("development", "running")))
     assert bot.refresh_stage(force=True) is False
+
+
+def test_trades_without_any_preflight_tick_after_startup():
+    bot, api = make_bot()
+    bot.startup()                                    # sandbox has no preflight ticks
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert api.orders and api.orders[0][:2] == ("AAA", "BUY")
+
+
+def test_universe_loaded_lazily_if_startup_failed():
+    bot, api = make_bot()
+    bot.sync_portfolio()                             # universe still unknown
+    bot.handle_message("market.ticks", tick("AAA", 103.0, "2021-02-01"))
+    assert bot.universe == {"AAA", "BBB"}
+
+
+def test_tick_log_shows_distance_from_trigger():
+    bot, api = started()
+    bot.handle_message("market.ticks", tick("AAA", 100.5, "2021-02-01"))
+    assert any("vs SMA8" in l and "+0.50%" in l for l in bot.api_logs)
