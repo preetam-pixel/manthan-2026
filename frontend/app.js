@@ -2160,605 +2160,591 @@ function initializeControls() {
 
 /* =========================================================
    25. CHARTS
+   Drawn with the shared kit in charts.js (window.QCharts):
+   light theme, in-place updates, crosshair, reference lines.
 ========================================================= */
 
-/*
-   Chart.js is optional in this file.
+const Q = window.QCharts;
 
-   If you use Chart.js, vendor it locally:
-
-   frontend/vendor/chart.umd.js
-
-   Then load it in index.html before app.js.
-
-   If Chart.js is not available, the dashboard will continue
-   working and chart containers will show a fallback message.
-*/
+const BAND_PCT = 1.5;
 
 
-const chartInstances = {};
+/* Close, SMA8 and band for the dates around a decision, plus fills */
 
+function pointsFor(ticker, limit) {
 
-function destroyChart(id) {
+    const data = state.series[ticker];
 
-    if (chartInstances[id]) {
+    const points = Array.isArray(data?.points) ? data.points : [];
 
-        chartInstances[id].destroy();
-
-        delete chartInstances[id];
-
-    }
-
-}
-
-
-function renderLineChart(
-    elementId,
-    labels,
-    datasets,
-    options = {}
-) {
-
-    const element = $(elementId);
-
-    if (!element) return;
-
-
-    if (typeof Chart === "undefined") {
-
-        element.innerHTML = `
-            <div class="chart-placeholder">
-                Chart library unavailable
-            </div>
-        `;
-
-        return;
-
-    }
-
-
-    destroyChart(elementId);
-
-
-    const canvas = document.createElement("canvas");
-
-    element.replaceChildren(canvas);
-
-
-    chartInstances[elementId] = new Chart(
-        canvas,
-        {
-
-            type: "line",
-
-            data: {
-
-                labels,
-
-                datasets
-
-            },
-
-            options: {
-
-                responsive: true,
-
-                maintainAspectRatio: false,
-
-                interaction: {
-
-                    intersect: false,
-
-                    mode: "index"
-
-                },
-
-                plugins: {
-
-                    legend: {
-
-                        display: true
-
-                    }
-
-                },
-
-                scales: {
-
-                    x: {
-
-                        ticks: {
-
-                            maxTicksLimit: 8
-
-                        }
-
-                    }
-
-                },
-
-                ...options
-
-            }
-
-        }
-    );
+    return limit ? points.slice(-limit) : points;
 
 }
 
 
 /* =========================================================
-   26. PRICE CHART
+   26. PRICE CHART: candles, SMA8 band, fills, volume
 ========================================================= */
 
 function renderPriceChart() {
 
     const ticker = state.activeTicker;
 
+    const points = pointsFor(ticker, 120);
 
-    const data = state.series[ticker];
+    if (!points.length) {
 
+        Q.empty("price-chart", "Waiting for prices...");
 
-    if (!data || !Array.isArray(data.points)) {
-
-        renderLineChart(
-            "price-chart",
-            [],
-            []
-        );
+        Q.empty("volume-chart", "");
 
         return;
 
     }
 
 
-    const points = data.points;
+    const c = Q.colors();
 
+    const labels = points.map(point => point.date);
 
-    const labels = points.map(
-        point => point.date
-    );
+    const rising = point => (point.close ?? 0) >= (point.open ?? point.close ?? 0);
 
+    const markers = Array.isArray(state.series[ticker]?.markers) ? state.series[ticker].markers : [];
 
-    /* Colours match the HTML legend above the chart */
-
-    const palette = getComputedStyle(document.documentElement);
-
-    const color = (name, fallback) => palette.getPropertyValue(name).trim() || fallback;
-
-    const bandColor = "#74859C";
-
-
-    const datasets = [
-
-        {
-
-            label: "Close",
-
-            data: points.map(
-                point => point.close ?? null
-            ),
-
-            borderColor: color("--blue", "#38BDF8"),
-
-            backgroundColor: color("--blue", "#38BDF8"),
-
-            borderWidth: 2,
-
-            pointRadius: 0,
-
-            tension: 0.2
-
-        },
-
-        {
-
-            label: "SMA8",
-
-            data: points.map(
-                point => point.sma8 ?? null
-            ),
-
-            borderColor: color("--purple", "#A78BFA"),
-
-            backgroundColor: color("--purple", "#A78BFA"),
-
-            borderWidth: 1.5,
-
-            pointRadius: 0,
-
-            tension: 0.2
-
-        },
-
-        {
-
-            label: "Upper Band",
-
-            data: points.map(
-                point => point.upper ?? null
-            ),
-
-            borderColor: bandColor,
-
-            backgroundColor: bandColor,
-
-            borderWidth: 1,
-
-            borderDash: [5, 5],
-
-            pointRadius: 0
-
-        },
-
-        {
-
-            label: "Lower Band",
-
-            data: points.map(
-                point => point.lower ?? null
-            ),
-
-            borderColor: bandColor,
-
-            backgroundColor: bandColor,
-
-            borderWidth: 1,
-
-            borderDash: [5, 5],
-
-            pointRadius: 0
-
-        }
-
-    ];
-
-
-    /* BUY / SELL execution markers from the bot's fills */
-
-    const markers = Array.isArray(data.markers) ? data.markers : [];
-
-    const markerSeries = (action, color, style) => {
-
+    const fillsOn = action => {
         const byDate = {};
-
-        markers
-            .filter(marker => marker.action === action)
-            .forEach(marker => { byDate[marker.date] = marker.price; });
-
-        return {
-            label: action,
-            data: labels.map(date => byDate[date] ?? null),
-            showLine: false,
-            pointRadius: 7,
-            pointHoverRadius: 9,
-            pointStyle: style,
-            rotation: action === "SELL" ? 180 : 0,
-            borderColor: color,
-            backgroundColor: color
-        };
-
+        markers.filter(m => m.action === action).forEach(m => { byDate[m.date] = m; });
+        return byDate;
     };
 
-    if (markers.length) {
+    const buys = fillsOn("BUY");
 
-        const css = getComputedStyle(document.documentElement);
+    const sells = fillsOn("SELL");
 
-        datasets.push(
-            markerSeries("BUY", css.getPropertyValue("--green").trim() || "#34D399", "triangle"),
-            markerSeries("SELL", css.getPropertyValue("--red").trim() || "#FB7185", "triangle")
-        );
-
-    }
+    const money = value => Q.inr(value, 2);
 
 
-    renderLineChart(
-        "price-chart",
-        labels,
-        datasets,
-        {
+    Q.upsert("price-chart", {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [
+                {
+                    type: "line", label: "Upper band", data: points.map(p => p.upper ?? null),
+                    borderColor: Q.alpha(c.neutral, 0.7), borderWidth: 1, borderDash: [4, 4],
+                    backgroundColor: Q.alpha(c.c1, 0.07), fill: "+1", tension: 0.2, order: 6
+                },
+                {
+                    type: "line", label: "Lower band", data: points.map(p => p.lower ?? null),
+                    borderColor: Q.alpha(c.neutral, 0.7), borderWidth: 1, borderDash: [4, 4],
+                    fill: false, tension: 0.2, order: 6
+                },
+                {
+                    type: "line", label: "SMA8", data: points.map(p => p.sma8 ?? null),
+                    borderColor: c.c2, borderWidth: 2, tension: 0.25, order: 2
+                },
+                {
+                    label: "High–low", data: points.map(p => [p.low, p.high]),
+                    backgroundColor: points.map(p => rising(p) ? c.good : c.bad),
+                    barThickness: 1.5, borderRadius: 0, order: 4
+                },
+                {
+                    label: "Candle", data: points.map(p => [Math.min(p.open, p.close), Math.max(p.open, p.close)]),
+                    backgroundColor: points.map(p => rising(p) ? c.surface : c.bad),
+                    borderColor: points.map(p => rising(p) ? c.good : c.bad),
+                    borderWidth: 1.25, borderSkipped: false, borderRadius: 1,
+                    barPercentage: 0.72, categoryPercentage: 0.9, order: 3
+                },
+                {
+                    type: "line", label: "BUY", data: labels.map(d => buys[d]?.price ?? null),
+                    showLine: false, pointStyle: "triangle", pointRadius: 8, pointHoverRadius: 10,
+                    backgroundColor: c.good, borderColor: c.surface, borderWidth: 2, order: 0
+                },
+                {
+                    type: "line", label: "SELL", data: labels.map(d => sells[d]?.price ?? null),
+                    showLine: false, pointStyle: "triangle", rotation: 180, pointRadius: 8, pointHoverRadius: 10,
+                    backgroundColor: c.bad, borderColor: c.surface, borderWidth: 2, order: 0
+                }
+            ]
+        },
+        options: Q.axes({
+            scales: {
+                x: { offset: true, grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+                y: { beginAtZero: false, grace: "4%", position: "right", ticks: { callback: v => "₹" + v } }
+            },
             plugins: {
-                legend: {
-                    display: false
+                tooltip: {
+                    filter: item => item.dataset.label === "Candle",
+                    callbacks: {
+                        label: item => {
+                            const p = points[item.dataIndex];
+                            const gap = p.sma8 ? ((p.close / p.sma8) - 1) * 100 : null;
+                            return [
+                                `Open ${money(p.open)}   Close ${money(p.close)}`,
+                                `High ${money(p.high)}   Low ${money(p.low)}`,
+                                `SMA8 ${money(p.sma8)}  (close ${gap === null ? "—" : (gap > 0 ? "+" : "") + gap.toFixed(2) + "%"})`
+                            ];
+                        },
+                        afterBody: items => {
+                            const date = labels[items[0]?.dataIndex];
+                            return [buys[date], sells[date]].filter(Boolean)
+                                .map(m => `${m.action} ${m.quantity} @ ${money(m.price)}`);
+                        }
+                    }
                 }
             }
-        }
-    );
+        })
+    });
+
+
+    Q.upsert("volume-chart", {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                label: "Volume", data: points.map(p => p.volume ?? null),
+                backgroundColor: points.map(p => Q.alpha(rising(p) ? c.good : c.bad, 0.35)),
+                borderRadius: 2, barPercentage: 0.72, categoryPercentage: 0.9
+            }]
+        },
+        options: Q.axes({
+            scales: {
+                x: { offset: true, display: false },
+                y: { position: "right", ticks: { maxTicksLimit: 3, callback: v => (v / 1e6).toFixed(1) + "M" } }
+            },
+            plugins: { tooltip: { callbacks: { label: item => `Volume ${Number(item.raw).toLocaleString("en-IN")}` } } }
+        })
+    });
 
 }
 
 
 /* =========================================================
-   27. EQUITY CHART
+   27. EQUITY CURVE + DRAWDOWN
 ========================================================= */
 
 function renderEquityChart() {
 
-    const labels = state.equity.map(
-        item => item.date
-    );
+    const rows = state.equity.filter(row => Q.num(row.total_wealth) !== null);
+
+    if (rows.length < 2) {
+
+        Q.empty("equity-chart", "Equity curve appears after the first few days");
+
+        Q.empty("drawdown-chart", "");
+
+        return;
+
+    }
 
 
-    const values = state.equity.map(
-        item => item.total_wealth ?? null
-    );
+    const c = Q.colors();
+
+    const labels = rows.map(row => row.date);
+
+    const wealth = rows.map(row => row.total_wealth);
+
+    const start = Q.num(state.status?.account?.initial_capital) ?? wealth[0];
+
+    let peak = -Infinity;
+
+    const drawdown = wealth.map(value => {
+        peak = Math.max(peak, value);
+        return (value / peak - 1) * 100;
+    });
+
+    const last = wealth.at(-1);
+
+    const maxDrawdown = Math.min(...drawdown);
 
 
-    renderLineChart(
-        "equity-chart",
-        labels,
-        [
+    setText("equity-return-chip", `${last >= start ? "+" : ""}${((last / start - 1) * 100).toFixed(1)}% vs start`);
 
-            {
+    setText("equity-dd-chip", `Max drawdown ${maxDrawdown.toFixed(1)}%`);
 
-                label: "Total Wealth",
 
-                data: values,
-
-                tension: 0.2
-
+    Q.upsert("equity-chart", {
+        type: "line",
+        data: {
+            labels,
+            datasets: [{
+                label: "Total wealth", data: wealth, borderColor: c.c1, borderWidth: 2.25,
+                backgroundColor: Q.fade(c.c1, 0.24), fill: "origin", pointHoverBackgroundColor: c.c1,
+                pointHoverBorderColor: c.surface
+            }]
+        },
+        options: Q.axes({
+            scales: {
+                x: { grid: { display: false } },
+                y: { beginAtZero: false, grace: "6%", ticks: { callback: v => Q.inrShort(v) } }
+            },
+            plugins: {
+                qRefLines: { lines: [{ axis: "y", value: start, color: c.subtle, label: `Start ${Q.inrShort(start)}` }] },
+                tooltip: {
+                    callbacks: {
+                        label: item => `Wealth ${Q.inr(item.raw, 0)}`,
+                        afterLabel: item => `${item.raw >= start ? "+" : ""}${((item.raw / start - 1) * 100).toFixed(2)}% since start`
+                    }
+                }
             }
+        })
+    });
 
-        ]
-    );
+
+    Q.upsert("drawdown-chart", {
+        type: "line",
+        data: {
+            labels,
+            datasets: [{
+                label: "Drawdown", data: drawdown, borderColor: c.bad, borderWidth: 1.5,
+                backgroundColor: Q.alpha(c.bad, 0.12), fill: "origin", tension: 0.15
+            }]
+        },
+        options: Q.axes({
+            scales: {
+                x: { display: false },
+                y: { max: 0, ticks: { maxTicksLimit: 3, callback: v => v.toFixed(0) + "%" } }
+            },
+            plugins: { tooltip: { callbacks: { label: item => `${item.raw.toFixed(2)}% below the peak` } } }
+        })
+    });
 
 }
 
 
 /* =========================================================
-   28. EXPOSURE CHART
+   28. POSITION SIZE vs THE PER-STOCK CAP
 ========================================================= */
 
 function renderExposureChart() {
 
     const account = state.status?.account || {};
 
+    const wealth = Q.num(account.total_wealth);
 
-    const labels = [
-
-        "Cash",
-
-        ...state.positions.map(
-            position => position.ticker
-        )
-
-    ];
-
-
-    const values = [
-
-        account.cash ?? null,
-
-        ...state.positions.map(
-            position => position.value ?? null
-        )
-
-    ];
-
-
-    renderLineChart(
-        "exposure-chart",
-        labels,
-        [
-
-            {
-
-                label: "Portfolio Exposure",
-
-                data: values,
-
-                tension: 0
-
-            }
-
-        ]
-    );
-
-}
-
-
-/* =========================================================
-   29. LATENCY CHART
-========================================================= */
-
-function renderLatencyChart() {
-
-    const stats = state.status?.stats || {};
-
+    const cash = Q.num(account.cash);
 
     setText(
-        "latency-avg",
-        stats.latency_avg_s === undefined || stats.latency_avg_s === null
-            ? "—"
-            : `${formatNumber(stats.latency_avg_s, 3)} s`
+        "exposure-chip",
+        wealth && cash !== null ? `Cash ${(cash / wealth * 100).toFixed(0)}% · Invested ${(100 - cash / wealth * 100).toFixed(0)}%` : "—"
     );
 
 
-    setText(
-        "latency-p95",
-        stats.latency_p95_s === undefined
-            ? "—"
-            : `${formatNumber(stats.latency_p95_s, 3)} s`
-    );
+    const rows = state.positions
+        .filter(position => Q.num(position.value) !== null)
+        .sort((a, b) => b.value - a.value);
 
+    if (!rows.length) {
 
-    setText(
-        "latency-max",
-        stats.latency_max_s === undefined
-            ? "—"
-            : `${formatNumber(stats.latency_max_s, 3)} s`
-    );
-
-
-    const labels = state.orders.map(
-        (_, index) => index + 1
-    );
-
-
-    const values = state.orders.map(
-        order => order.latency_s ?? null
-    );
-
-
-    renderLineChart(
-        "latency-chart",
-        labels,
-        [
-
-            {
-
-                label: "Latency (seconds)",
-
-                data: values,
-
-                tension: 0
-
-            }
-
-        ]
-    );
-
-}
-
-
-/* =========================================================
-   30. RISK BLOCK CHART
-========================================================= */
-
-function renderRiskChart() {
-
-    const counts = {};
-
-
-    state.events
-        .filter(event => event.type === "RISK_BLOCK")
-        .forEach(event => {
-
-            const reason =
-                event.reason || "Unknown";
-
-            counts[reason] =
-                (counts[reason] || 0) + 1;
-
-        });
-
-
-    renderLineChart(
-        "risk-block-chart",
-        Object.keys(counts),
-        [
-
-            {
-
-                label: "Risk Blocks",
-
-                data: Object.values(counts),
-
-                tension: 0
-
-            }
-
-        ]
-    );
-
-}
-
-
-/* =========================================================
-   31. TRIGGER HEATMAP
-========================================================= */
-
-function renderTriggerHeatmap() {
-
-    const container = $("trigger-heatmap");
-
-    if (!container) return;
-
-
-    const tickers = Object.keys(state.series);
-
-
-    if (!tickers.length) {
-
-        container.innerHTML = `
-            <div class="empty-state">
-                No trigger data available
-            </div>
-        `;
+        Q.empty("exposure-chart", "No open positions — all cash");
 
         return;
 
     }
 
 
-    container.innerHTML = tickers.map(ticker => {
+    const c = Q.colors();
 
-        const points = state.series[ticker]?.points || [];
+    const capOf = position => position.cap_used_pct ? position.value / (position.cap_used_pct / 100) : null;
 
-        const latest = points.at(-1);
-
-
-        if (!latest) {
-
-            return "";
-
-        }
+    const cap = rows.map(capOf).find(value => value) ?? null;
 
 
-        const close = safeNumber(latest.close);
-
-        const sma = safeNumber(latest.sma8);
-
-
-        let distance = null;
-
-
-        if (
-            close !== null &&
-            sma !== null &&
-            sma !== 0
-        ) {
-
-            distance = ((close / sma) - 1) * 100;
-
-        }
-
-
-        let zone = "neutral";
-
-
-        if (distance !== null) {
-
-            if (distance >= 1.5) {
-
-                zone = "buy-zone";
-
-            } else if (distance <= -1.5) {
-
-                zone = "sell-zone";
-
+    Q.upsert("exposure-chart", {
+        type: "bar",
+        data: {
+            labels: rows.map(position => position.ticker),
+            datasets: [{
+                label: "Position value", data: rows.map(position => position.value),
+                backgroundColor: c.c1,
+                borderRadius: 4, barPercentage: 0.7, categoryPercentage: 0.85
+            }]
+        },
+        options: Q.axes({
+            indexAxis: "y",
+            interaction: { mode: "nearest", axis: "y", intersect: false },
+            scales: {
+                x: { beginAtZero: true, suggestedMax: cap ? cap * 1.08 : undefined, ticks: { callback: v => Q.inrShort(v) } },
+                y: { grid: { display: false }, ticks: { color: c.text, font: { weight: "600" } } }
+            },
+            plugins: {
+                qCrosshair: false,
+                qRefLines: cap ? { lines: [{ axis: "x", value: cap, color: c.bad, label: `Cap ${Q.inrShort(cap)}` }] } : {},
+                tooltip: {
+                    callbacks: {
+                        label: item => {
+                            const p = rows[item.dataIndex];
+                            return [`Value ${Q.inr(p.value, 0)}  ·  ${p.quantity} shares`,
+                                    `Unrealised ${Q.inr(p.unrealized_pnl, 0)}  ·  cap used ${Q.num(p.cap_used_pct)?.toFixed(0) ?? "—"}%`];
+                        }
+                    }
+                }
             }
+        })
+    });
 
-        }
+}
 
 
-        return `
+/* =========================================================
+   29. LATENCY DISTRIBUTION
+========================================================= */
 
-            <div class="trigger-cell ${zone}">
+function renderLatencyChart() {
 
-                <span class="trigger-ticker">
-                    ${escapeHTML(ticker)}
-                </span>
+    const stats = state.status?.stats || {};
 
-                <strong>
-                    ${formatPercent(distance)}
-                </strong>
+    const seconds = value => Q.num(value) === null ? "—" : `${formatNumber(value, 3)} s`;
 
-            </div>
+    setText("latency-avg", seconds(stats.latency_avg_s));
 
-        `;
+    setText("latency-p95", seconds(stats.latency_p95_s));
 
-    }).join("");
+    setText("latency-max", seconds(stats.latency_max_s));
+
+
+    const latencies = state.orders.map(order => Q.num(order.latency_s)).filter(value => value !== null);
+
+    if (!latencies.length) {
+
+        Q.empty("latency-chart", "No orders yet");
+
+        return;
+
+    }
+
+
+    const edges = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1, 2, 3];
+
+    const labels = edges.map((edge, i) => i === edges.length - 1 ? `≥${edge}s` : `${edge}–${edges[i + 1]}s`);
+
+    const counts = edges.map((edge, i) =>
+        latencies.filter(v => v >= edge && (i === edges.length - 1 || v < edges[i + 1])).length);
+
+    const c = Q.colors();
+
+
+    Q.upsert("latency-chart", {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                label: "Orders", data: counts,
+                backgroundColor: edges.map(edge => edge >= 1 ? c.c2 : c.c1),
+                borderRadius: 4, barPercentage: 0.86, categoryPercentage: 0.92
+            }]
+        },
+        options: Q.axes({
+            scales: {
+                x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+                y: { beginAtZero: true, ticks: { precision: 0 } }
+            },
+            plugins: {
+                qCrosshair: false,
+                tooltip: {
+                    callbacks: {
+                        title: items => `Latency ${items[0].label}`,
+                        label: item => `${item.raw} of the last ${latencies.length} orders`
+                    }
+                }
+            }
+        })
+    });
+
+}
+
+
+/* =========================================================
+   30. RISK BLOCKS BY REASON
+========================================================= */
+
+function blockReason(reason) {
+
+    const text = String(reason || "Unknown");
+
+    if (text.startsWith("news veto")) return "Skipped: bad news";
+
+    if (text.startsWith("trading stopped")) return "Trading stopped";
+
+    if (text.includes("cap")) return "Position cap";
+
+    if (text.includes("cash")) return "Not enough cash";
+
+    return text.length > 32 ? text.slice(0, 31) + "…" : text;
+
+}
+
+
+function renderRiskChart() {
+
+    const counts = {};
+
+    state.events
+        .filter(event => event.type === "RISK_BLOCK")
+        .forEach(event => {
+            const reason = blockReason(event.reason);
+            counts[reason] = (counts[reason] || 0) + 1;
+        });
+
+    const reasons = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+
+    if (!reasons.length) {
+
+        Q.empty("risk-block-chart", "No orders blocked in the recent events");
+
+        return;
+
+    }
+
+
+    const c = Q.colors();
+
+    Q.upsert("risk-block-chart", {
+        type: "bar",
+        data: {
+            labels: reasons,
+            datasets: [{
+                label: "Blocked", data: reasons.map(reason => counts[reason]), backgroundColor: c.c1,
+                borderRadius: 4, barPercentage: 0.6, categoryPercentage: 0.85
+            }]
+        },
+        options: Q.axes({
+            indexAxis: "y",
+            interaction: { mode: "nearest", axis: "y", intersect: false },
+            scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 } },
+                y: { grid: { display: false }, ticks: { color: c.text } }
+            },
+            plugins: { qCrosshair: false, tooltip: { callbacks: { label: item => `${item.raw} orders not sent` } } }
+        })
+    });
+
+}
+
+
+/* =========================================================
+   31. DISTANCE FROM TRIGGER (close / SMA8 − 1)
+========================================================= */
+
+function renderTriggerHeatmap() {
+
+    const held = new Set(state.positions.map(position => position.ticker));
+
+    const rows = Object.keys(state.series)
+        .map(ticker => {
+            const latest = pointsFor(ticker).at(-1);
+            const close = Q.num(latest?.close);
+            const sma = Q.num(latest?.sma8);
+            return { ticker, distance: close !== null && sma ? (close / sma - 1) * 100 : null, close, sma };
+        })
+        .filter(row => row.distance !== null)
+        .sort((a, b) => b.distance - a.distance);
+
+    if (!rows.length) {
+
+        Q.empty("trigger-heatmap", "No trigger data yet");
+
+        return;
+
+    }
+
+
+    const c = Q.colors();
+
+    const zone = d => d >= BAND_PCT ? c.good : d <= -BAND_PCT ? c.bad : c.neutral;
+
+    const next = row => {
+        if (row.distance >= BAND_PCT) return held.has(row.ticker) ? "held, above the band" : "buy signal";
+        if (row.distance <= -BAND_PCT) return held.has(row.ticker) ? "sell signal" : "below the band, not held";
+        return held.has(row.ticker) ? "held, inside the band" : "inside the band";
+    };
+
+
+    Q.upsert("trigger-heatmap", {
+        type: "bar",
+        data: {
+            labels: rows.map(row => held.has(row.ticker) ? `${row.ticker} ●` : row.ticker),
+            datasets: [{
+                label: "Close vs SMA8", data: rows.map(row => row.distance),
+                backgroundColor: rows.map(row => zone(row.distance)),
+                borderRadius: 4, barPercentage: 0.66, categoryPercentage: 0.88
+            }]
+        },
+        options: Q.axes({
+            indexAxis: "y",
+            interaction: { mode: "nearest", axis: "y", intersect: false },
+            scales: {
+                x: { suggestedMin: -BAND_PCT * 2, suggestedMax: BAND_PCT * 2, ticks: { callback: v => `${v > 0 ? "+" : ""}${v}%` } },
+                y: { grid: { display: false }, ticks: { color: c.text, font: { weight: "600" } } }
+            },
+            plugins: {
+                qCrosshair: false,
+                qRefLines: {
+                    lines: [
+                        { axis: "x", value: BAND_PCT, color: c.good, label: `Buy +${BAND_PCT}%` },
+                        { axis: "x", value: -BAND_PCT, color: c.bad, label: `Sell −${BAND_PCT}%` },
+                        { axis: "x", value: 0, color: c.axis, dash: [] }
+                    ]
+                },
+                tooltip: {
+                    callbacks: {
+                        title: items => rows[items[0].dataIndex].ticker,
+                        label: item => {
+                            const row = rows[item.dataIndex];
+                            return [`Close ${Q.inr(row.close)}  ·  SMA8 ${Q.inr(row.sma)}`,
+                                    `${row.distance > 0 ? "+" : ""}${row.distance.toFixed(2)}% → ${next(row)}`];
+                        }
+                    }
+                }
+            }
+        })
+    });
+
+}
+
+
+/* KPI sparklines: the last stretch of the equity history, as tiny inline SVGs */
+
+function sparkline(values, color) {
+
+    const clean = values.filter(value => Q.num(value) !== null);
+
+    if (clean.length < 2) return "";
+
+    const min = Math.min(...clean), max = Math.max(...clean), span = max - min || 1;
+
+    const w = 120, h = 34;
+
+    const xy = clean.map((value, i) =>
+        `${(i / (clean.length - 1) * w).toFixed(1)},${(h - 2 - (value - min) / span * (h - 4)).toFixed(1)}`);
+
+    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+        <polygon points="0,${h} ${xy.join(" ")} ${w},${h}" fill="${Q.alpha(color, 0.12)}"/>
+        <polyline points="${xy.join(" ")}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+    </svg>`;
+
+}
+
+
+function renderKpiSparklines() {
+
+    const rows = state.equity.slice(-90);
+
+    const c = Q.colors();
+
+    const start = Q.num(state.status?.account?.initial_capital);
+
+    const pairs = [
+        ["kpi-wealth-spark", rows.map(row => row.total_wealth), c.c1],
+        ["kpi-cash-spark", rows.map(row => row.cash), c.neutral],
+        ["kpi-invested-spark", rows.map(row => row.invested), c.c1],
+        ["kpi-pnl-spark", rows.map(row => start === null ? null : row.total_wealth - start), c.good]
+    ];
+
+    pairs.forEach(([id, values, color]) => {
+        const element = $(id);
+        if (element) element.innerHTML = sparkline(values, color);
+    });
 
 }
 
@@ -2780,6 +2766,8 @@ function renderCharts() {
     renderRiskChart();
 
     renderTriggerHeatmap();
+
+    renderKpiSparklines();
 
 }
 

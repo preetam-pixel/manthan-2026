@@ -206,24 +206,28 @@
                                 <span class="kpi-label">TOTAL WEALTH</span>
                                 <h3 id="kpi-total-wealth">₹—</h3>
                                 <span class="kpi-change" id="kpi-wealth-change">—</span>
+                                <div class="kpi-spark" id="kpi-wealth-spark"></div>
                             </article>
 
                             <article class="kpi-card">
                                 <span class="kpi-label">AVAILABLE CASH</span>
                                 <h3 id="kpi-cash">₹—</h3>
                                 <span class="kpi-change" id="kpi-cash-change">—</span>
+                                <div class="kpi-spark" id="kpi-cash-spark"></div>
                             </article>
 
                             <article class="kpi-card">
                                 <span class="kpi-label">INVESTED VALUE</span>
                                 <h3 id="kpi-invested">₹—</h3>
                                 <span class="kpi-change" id="kpi-invested-change">—</span>
+                                <div class="kpi-spark" id="kpi-invested-spark"></div>
                             </article>
 
                             <article class="kpi-card">
                                 <span class="kpi-label">NET P&amp;L</span>
                                 <h3 id="kpi-net-pnl">₹—</h3>
                                 <span class="kpi-change" id="kpi-net-pnl-percent">—</span>
+                                <div class="kpi-spark" id="kpi-pnl-spark"></div>
                             </article>
 
                             <article class="kpi-card">
@@ -255,28 +259,37 @@
                     </section>
 
 
-                    <div class="chart-grid">
+                    <div class="chart-grid chart-grid-wide">
 
                         <article class="chart-card">
                             <div class="chart-header">
                                 <div>
                                     <h3>Equity Curve</h3>
-                                    <p>Total wealth over simulated days</p>
+                                    <p>Total wealth per simulated day, with the drawdown from its running peak below</p>
+                                </div>
+                                <div class="chart-chips">
+                                    <span class="chip chip-accent" id="equity-return-chip">—</span>
+                                    <span class="chip" id="equity-dd-chip">—</span>
                                 </div>
                             </div>
-                            <div id="equity-chart" class="chart" role="img" aria-label="Portfolio equity curve">
+                            <div id="equity-chart" class="chart chart-tall" role="img" aria-label="Portfolio equity curve">
                                 <div class="chart-placeholder">Equity chart loading...</div>
                             </div>
+                            <div class="subchart-label">Drawdown</div>
+                            <div id="drawdown-chart" class="chart chart-strip" role="img" aria-label="Drawdown from peak"></div>
                         </article>
 
                         <article class="chart-card">
                             <div class="chart-header">
                                 <div>
-                                    <h3>Portfolio Exposure</h3>
-                                    <p>Cash vs individual stock positions</p>
+                                    <h3>Position Size</h3>
+                                    <p>Value of each holding against the per-stock cap</p>
+                                </div>
+                                <div class="chart-chips">
+                                    <span class="chip" id="exposure-chip">—</span>
                                 </div>
                             </div>
-                            <div id="exposure-chart" class="chart" role="img" aria-label="Portfolio exposure chart">
+                            <div id="exposure-chart" class="chart chart-tall" role="img" aria-label="Position value per stock against the cap">
                                 <div class="chart-placeholder">Exposure chart loading...</div>
                             </div>
                         </article>
@@ -289,17 +302,17 @@
                         <div class="chart-header">
                             <div>
                                 <h3>Distance From Trigger</h3>
-                                <p>Close / SMA8 − 1 for every stock: which ones are close to a buy or sell</p>
+                                <p>Close vs its 8-day average for every stock. Past +1.5% the bot buys; below −1.5% it sells what it holds. ● = held now</p>
                             </div>
                             <div class="trigger-legend">
                                 <span><span class="legend-dot sell-legend"></span>Sell zone</span>
-                                <span><span class="legend-dot neutral-legend"></span>Neutral</span>
+                                <span><span class="legend-dot neutral-legend"></span>Inside band</span>
                                 <span><span class="legend-dot buy-legend"></span>Buy zone</span>
                             </div>
                         </div>
 
-                        <div id="trigger-heatmap" class="trigger-heatmap">
-                            <div class="chart-placeholder">Heatmap loading...</div>
+                        <div id="trigger-heatmap" class="chart chart-trigger" role="img" aria-label="Distance of each stock's close from its 8-day average">
+                            <div class="chart-placeholder">Trigger chart loading...</div>
                         </div>
 
                     </article>
@@ -325,7 +338,7 @@
                         <div class="chart-header">
                             <div>
                                 <h3>Price &amp; Indicators</h3>
-                                <p>Close price, SMA8, trading bands, and execution markers</p>
+                                <p>Daily candles for the last 120 days, the 8-day average with its ±1.5% band, and the bot's fills</p>
                             </div>
                             <div class="chart-controls">
                                 <label for="ticker-selector">Ticker</label>
@@ -336,18 +349,19 @@
                         </div>
 
                         <div class="chart-legend">
-                            <span class="legend-item"><span class="legend-dot close-legend"></span>Close</span>
-                            <span class="legend-item"><span class="legend-dot sma-legend"></span>SMA8</span>
-                            <span class="legend-item"><span class="legend-dot band-legend"></span>±1.5% Band</span>
-                            <span class="legend-item"><span class="legend-dot buy-legend"></span>BUY</span>
-                            <span class="legend-item"><span class="legend-dot sell-legend"></span>SELL</span>
+                            <span class="legend-item"><span class="legend-candle up"></span>Up day</span>
+                            <span class="legend-item"><span class="legend-candle down"></span>Down day</span>
+                            <span class="legend-item"><span class="legend-line sma-legend"></span>SMA8</span>
+                            <span class="legend-item"><span class="legend-band"></span>±1.5% band</span>
+                            <span class="legend-item"><span class="legend-tri buy"></span>BUY fill</span>
+                            <span class="legend-item"><span class="legend-tri sell"></span>SELL fill</span>
                         </div>
 
-                        <div class="chart-container">
-                            <div id="price-chart" class="chart" role="img" aria-label="Stock price and indicators chart">
-                                <div class="chart-placeholder">Price chart loading...</div>
-                            </div>
+                        <div id="price-chart" class="chart chart-price" role="img" aria-label="Candlestick price chart with SMA8 band and fills">
+                            <div class="chart-placeholder">Price chart loading...</div>
                         </div>
+                        <div class="subchart-label">Volume</div>
+                        <div id="volume-chart" class="chart chart-strip" role="img" aria-label="Daily volume"></div>
 
                     </article>
 
@@ -510,7 +524,7 @@
                             <div class="chart-header">
                                 <div>
                                     <h3>Decision Latency</h3>
-                                    <p>Processing time per order</p>
+                                    <p>Time from prices arriving to the order reaching the exchange (window ~3 s)</p>
                                 </div>
                             </div>
                             <div class="latency-summary">
@@ -551,7 +565,7 @@
                         <div class="section-heading">
                             <div>
                                 <span class="section-label">EXPLAINABILITY</span>
-                                <h2>Decision Journal</h2>
+                                <h2>Trade Journal</h2>
                             </div>
                             <div class="insight-actions">
                                 <span class="table-count" id="journal-stats">0 decisions</span>
@@ -560,21 +574,56 @@
                         </div>
 
                         <p class="insight-sub">
-                            Every decision the bot made, why, what the risk gate said, what the exchange
-                            answered, and the tax consequence. Also written to <code>logs/decisions_*.jsonl</code>.
+                            Why each trade was taken, or skipped: the signal, the news check, the risk gate, what the
+                            exchange answered and what happened next. Pick a decision on the left to see it on the chart.
+                            Every decision is also written to <code>logs/decisions_*.jsonl</code>.
                         </p>
 
-                        <div class="table-container">
-                            <table id="journal-table">
-                                <thead>
-                                    <tr>
-                                        <th>Sim date</th><th>Ticker</th><th>Action</th><th>Qty</th><th>Price</th>
-                                        <th>Why</th><th>News ctx</th><th>Risk gate</th><th>Exchange</th>
-                                        <th>Realised</th><th>Latency</th>
-                                    </tr>
-                                </thead>
-                                <tbody><tr><td colspan="11" class="insight-empty">No decisions yet</td></tr></tbody>
-                            </table>
+                        <div class="journal-kpis" id="journal-kpis"></div>
+
+                        <div class="chart-grid journal-charts">
+                            <article class="chart-card">
+                                <div class="chart-header">
+                                    <div>
+                                        <h3>Realised P&amp;L per closed trade</h3>
+                                        <p>Each sell in the recent decisions, oldest to newest</p>
+                                    </div>
+                                    <div class="chart-chips"><span class="chip" id="journal-pnl-chip">—</span></div>
+                                </div>
+                                <div id="journal-pnl-chart" class="chart" role="img" aria-label="Realised profit or loss per closed trade"></div>
+                            </article>
+                            <article class="chart-card">
+                                <div class="chart-header">
+                                    <div>
+                                        <h3>Why the bot acted</h3>
+                                        <p>Recent decisions grouped by the rule behind them</p>
+                                    </div>
+                                </div>
+                                <div id="journal-reasons-chart" class="chart" role="img" aria-label="Decisions grouped by reason"></div>
+                            </article>
+                        </div>
+
+                        <div class="journal-browser">
+
+                            <div class="chart-card journal-list-card">
+                                <div class="journal-filters" role="group" aria-label="Filter decisions">
+                                    <button class="filter-chip active" type="button" data-journal-filter="ALL">All</button>
+                                    <button class="filter-chip" type="button" data-journal-filter="BUY">Bought</button>
+                                    <button class="filter-chip" type="button" data-journal-filter="SELL">Sold</button>
+                                    <button class="filter-chip" type="button" data-journal-filter="SKIPPED">Skipped</button>
+                                    <select id="journal-ticker" aria-label="Filter by stock">
+                                        <option value="ALL">All stocks</option>
+                                    </select>
+                                </div>
+                                <ol class="journal-list" id="journal-list">
+                                    <li class="insight-empty">No decisions yet</li>
+                                </ol>
+                            </div>
+
+                            <article class="chart-card journal-detail" id="journal-detail" aria-live="polite">
+                                <div class="insight-empty">Select a decision to see why it was taken</div>
+                            </article>
+
                         </div>
 
                     </section>
@@ -859,6 +908,7 @@
 
 
     <script src="./vendor/chart.umd.js"></script>
+    <script src="./charts.js" defer></script>
     <script src="./app.js" defer></script>
     <script src="./insights.js" defer></script>
     <script src="./pages.js" defer></script>

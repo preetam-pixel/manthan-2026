@@ -44,7 +44,7 @@
     overflow-y: auto;
 
     border-right: 1px solid var(--border);
-    background: rgba(9, 15, 30, 0.55);
+    background: rgba(255, 255, 255, 0.72);
 }
 
 .nav-group-label {
@@ -99,18 +99,18 @@
 
 .nav-link:hover {
     color: var(--text);
-    background: rgba(56, 189, 248, 0.06);
+    background: rgba(37, 99, 235, 0.06);
 }
 
 .nav-link.active {
     color: var(--text);
 
-    border-color: rgba(56, 189, 248, 0.28);
+    border-color: rgba(37, 99, 235, 0.28);
     background:
         linear-gradient(
             90deg,
-            rgba(56, 189, 248, 0.16),
-            rgba(56, 189, 248, 0.04)
+            rgba(37, 99, 235, 0.16),
+            rgba(37, 99, 235, 0.04)
         );
 }
 
@@ -127,7 +127,7 @@
     border-radius: 0 3px 3px 0;
     background: var(--blue);
 
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.6);
 }
 
 .nav-link.active svg {
@@ -182,7 +182,7 @@
 
     border-radius: 99px;
 
-    color: #06131F;
+    color: #FFFFFF;
     background: var(--blue);
 
     font-family: var(--mono);
@@ -208,7 +208,7 @@
 
 .nav-status:hover {
     color: var(--text);
-    border-color: rgba(56, 189, 248, 0.3);
+    border-color: rgba(37, 99, 235, 0.3);
 }
 
 .nav-status-text {
@@ -232,7 +232,7 @@
 
 .nav-status.running .status-dot {
     background: var(--green);
-    box-shadow: 0 0 0 3px var(--green-bg), 0 0 12px rgba(52, 211, 153, 0.35);
+    box-shadow: 0 0 0 3px var(--green-bg), 0 0 12px rgba(5, 150, 105, 0.35);
 }
 
 .nav-status.stopped .status-dot {
@@ -246,7 +246,7 @@
 }
 
 .nav-status.running {
-    border-color: rgba(52, 211, 153, 0.28);
+    border-color: rgba(5, 150, 105, 0.28);
 }
 
 
@@ -369,10 +369,10 @@
     margin-top: 16px;
     padding: 11px 14px;
 
-    border: 1px solid rgba(251, 191, 36, 0.3);
+    border: 1px solid rgba(217, 119, 6, 0.3);
     border-radius: var(--radius-sm);
 
-    color: #FDE68A;
+    color: #92400E;
     background: var(--amber-bg);
 
     font-size: 12px;
@@ -393,8 +393,8 @@
     background:
         linear-gradient(
             145deg,
-            rgba(25, 38, 62, 0.97),
-            rgba(17, 28, 48, 0.98)
+            #FFFFFF,
+            #FCFDFE
         );
 
     box-shadow: var(--shadow);
@@ -469,11 +469,11 @@ dialog {
     color: var(--text);
     background: var(--surface);
 
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
 }
 
 dialog::backdrop {
-    background: rgba(4, 8, 16, 0.65);
+    background: rgba(15, 23, 42, 0.32);
     backdrop-filter: blur(4px);
 }
 
@@ -542,7 +542,7 @@ dialog::backdrop {
 
         border-right: 0;
         border-bottom: 1px solid var(--border);
-        background: rgba(9, 15, 30, 0.94);
+        background: rgba(255, 255, 255, 0.96);
 
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
