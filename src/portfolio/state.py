@@ -22,14 +22,19 @@ class PortfolioState:
         self.synced = False
         self.exchange: dict = {}                    # last raw /portfolio answer (what the portal shows)
         self.synced_at: Optional[str] = None        # wall-clock time of that answer (UTC ISO)
+        self.account_reset: Optional[dict] = None   # last time the exchange's order count went down
         self.uncertain: set[str] = set()      # tickers with an unresolved order
         self.submitted: set[tuple] = set()    # (ticker, action, simulated_date)
 
     def quantity(self, ticker: str) -> int:
         return self.held.get(ticker, 0)
 
-    def sync(self, portfolio: dict) -> None:
-        """Replace local state with the exchange's view (authoritative)."""
+    def sync(self, portfolio: dict) -> bool:
+        """Replace local state with the exchange's view (authoritative).
+
+        Returns True when the account was reset on the exchange since the last answer: its
+        order count only grows, so a drop means earlier orders are no longer on the account."""
+        before, after = _number(self.exchange.get("total_orders")), _number(portfolio.get("total_orders"))
         holdings = {}
         for h in portfolio.get("holdings") or []:
             ticker, qty = h.get("ticker"), h.get("quantity")
@@ -50,6 +55,10 @@ class PortfolioState:
         self.exchange = dict(portfolio)
         self.synced_at = datetime.now(timezone.utc).isoformat()
         self.synced = True
+        reset = before is not None and after is not None and after < before
+        if reset:
+            self.account_reset = {"at": self.synced_at, "orders_before": int(before), "orders_after": int(after)}
+        return reset
 
     def exchange_holding(self, ticker: str) -> dict:
         for h in self.exchange.get("holdings") or []:
@@ -75,10 +84,11 @@ class PortfolioState:
     def mark_uncertain(self, ticker: str) -> None:
         self.uncertain.add(ticker)
 
-    def resolve_uncertain(self, portfolio: dict) -> None:
+    def resolve_uncertain(self, portfolio: dict) -> bool:
         """Re-sync from the exchange; only then may the ticker trade again."""
-        self.sync(portfolio)
+        reset = self.sync(portfolio)
         self.uncertain.clear()
+        return reset
 
     def has_submitted(self, key: tuple) -> bool:
         return key in self.submitted

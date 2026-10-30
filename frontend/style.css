@@ -191,7 +191,8 @@ a:hover {
    ============================================================ */
 
 .fixture-banner,
-.offline-banner {
+.offline-banner,
+.reset-banner {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -206,7 +207,8 @@ a:hover {
     letter-spacing: 0.08em;
 }
 
-.fixture-banner {
+.fixture-banner,
+.reset-banner {
     color: #FDE68A;
 
     background:
@@ -248,7 +250,8 @@ a:hover {
         0 0 0 3px rgba(148, 163, 184, 0.08);
 }
 
-.fixture-banner .status-dot {
+.fixture-banner .status-dot,
+.reset-banner .status-dot {
     background: var(--amber);
 
     box-shadow:
@@ -1305,6 +1308,11 @@ tr.rejected {
 .activity-row.ERROR .activity-icon {
     color: var(--red);
     background: var(--red-bg);
+}
+
+.activity-row.ACCOUNT_RESET .activity-icon {
+    color: var(--amber);
+    background: var(--amber-bg);
 }
 
 .activity-row.NEWS .activity-icon {

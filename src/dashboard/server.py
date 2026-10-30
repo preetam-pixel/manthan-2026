@@ -102,6 +102,7 @@ def status_view(bot, dash) -> dict:
     # Session counts restart with every bot run; the exchange counts the whole account (as the portal).
     stats["account_orders"] = _num(ex.get("total_orders"))
     stats["account_rejected"] = _num(ex.get("rejected_orders_count"))
+    stats["account_reset_at"] = (bot.portfolio.account_reset or {}).get("at")
     return {
         "bot": bot_view(bot, dash),
         "sim": {"stage": info.get("stage"), "status": info.get("status"),

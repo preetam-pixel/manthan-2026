@@ -278,6 +278,36 @@ def test_account_and_positions_show_the_exchange_figures_like_the_portal(rig):
     assert call(server, "GET", "/tax")[1]["exchange_charges"] == 7_016.72
 
 
+def test_account_reset_on_the_exchange_is_flagged(rig):
+    bot, dash, api, server = rig
+    api.portfolio = EXCHANGE
+    bot.sync_portfolio()
+    assert call(server, "GET", "/status")[1]["stats"]["account_reset_at"] is None
+    api.portfolio = {**EXCHANGE, "total_orders": 300}                    # growing count: normal trading
+    bot.sync_portfolio()
+    assert call(server, "GET", "/status")[1]["stats"]["account_reset_at"] is None
+    api.portfolio = {**EXCHANGE, "total_orders": 4, "holdings": []}      # count went down: account restarted
+    bot.sync_portfolio()
+    st = call(server, "GET", "/status")[1]
+    assert st["stats"]["account_reset_at"] and st["stats"]["account_orders"] == 4
+    assert bot.portfolio.account_reset == {"at": st["stats"]["account_reset_at"],
+                                           "orders_before": 300, "orders_after": 4}
+    ev = [e for e in call(server, "GET", "/events")[1] if e["type"] == "ACCOUNT_RESET"]
+    assert len(ev) == 1 and "300 to 4" in ev[0]["reason"]
+    bot.sync_portfolio()                                                  # same count again: no new warning
+    assert len([e for e in call(server, "GET", "/events")[1] if e["type"] == "ACCOUNT_RESET"]) == 1
+
+
+def test_no_reset_warning_without_an_order_count(rig):
+    bot, dash, api, server = rig
+    api.portfolio = {"holdings": [], "cash": 1_000_000.0}
+    bot.sync_portfolio()
+    api.portfolio = {"holdings": [], "cash": 1_000_000.0, "total_orders": 0}
+    bot.sync_portfolio()
+    assert bot.portfolio.account_reset is None
+    assert not [e for e in call(server, "GET", "/events")[1] if e["type"] == "ACCOUNT_RESET"]
+
+
 def test_new_position_shows_our_cost_until_the_exchange_reports_it(rig):
     bot, dash, api, server = rig
     call(server, "POST", "/control/start", {}, JSON)

@@ -807,12 +807,29 @@ function renderKPIs() {
         accountOrders ?? stats.orders_sent
     );
 
+    /* A reset on the exchange wipes the account's orders; this session's count keeps them */
+
+    const resetAt = stats.account_reset_at ? formatTime(stats.account_reset_at) : null;
+
     setText(
         "kpi-orders-sent-change",
         accountOrders === null
             ? "Since run start"
-            : `Account total · this session: ${stats.orders_sent ?? 0}`
+            : resetAt
+                ? `Account total since reset at ${resetAt} · this session: ${stats.orders_sent ?? 0}`
+                : `Account total · this session: ${stats.orders_sent ?? 0}`
     );
+
+    showElement("reset-banner", Boolean(resetAt));
+
+    if (resetAt) {
+
+        setText(
+            "reset-banner-text",
+            `EXCHANGE ACCOUNT RESET AT ${resetAt} · EARLIER ORDERS ARE NO LONGER ON THE ACCOUNT`
+        );
+
+    }
 
 
     setText(
@@ -1220,6 +1237,8 @@ function getEventIcon(type) {
         NEWS: "◉",
 
         ERROR: "!",
+
+        ACCOUNT_RESET: "↺",
 
         SYSTEM: "⚙"
 

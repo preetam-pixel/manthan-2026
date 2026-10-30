@@ -160,7 +160,8 @@ class Bot:
     # ---- startup ----------------------------------------------------
     def sync_portfolio(self) -> bool:
         try:
-            self.portfolio.sync(self.api.get_portfolio())
+            if self.portfolio.sync(self.api.get_portfolio()):
+                self._warn_account_reset()
             self._last_sync_at = self.clock()
             self._sync_retry_at = None
             if hasattr(self.strategy, "sync_holdings"):
@@ -171,6 +172,15 @@ class Bot:
             self._sync_retry_at = self.clock() + SYNC_RETRY_S
             self.log("portfolio sync failed", exc)
             return False
+
+    def _warn_account_reset(self) -> None:
+        """The exchange account restarted under us: this session's counts and tax estimate
+        still include orders that are no longer on it."""
+        r = self.portfolio.account_reset
+        detail = (f"exchange order count fell from {r['orders_before']} to {r['orders_after']}; "
+                  f"orders before this are no longer on the account")
+        self.log("WARNING: EXCHANGE ACCOUNT RESET -", detail)
+        self._d("record_event", "ACCOUNT_RESET", "Exchange account reset", reason=detail, data=dict(r))
 
     def startup(self) -> None:
         """Sync portfolio, discover the universe and warm-start every ticker.
@@ -538,7 +548,8 @@ class Bot:
         if not self.portfolio.uncertain:
             return
         try:
-            self.portfolio.resolve_uncertain(self.api.get_portfolio())
+            if self.portfolio.resolve_uncertain(self.api.get_portfolio()):
+                self._warn_account_reset()
             self.log("reconciled uncertain orders from portfolio")
         except Exception as exc:
             self.log("reconcile failed; ticker stays blocked", exc)
