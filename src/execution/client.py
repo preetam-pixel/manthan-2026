@@ -10,7 +10,6 @@ import requests
 
 API_ACTIONS = ("BUY", "SELL", "SHORT", "COVER")
 MAX_QUANTITY = 1_000_000
-RATE_LIMIT_PER_MIN = 120
 RATE_LIMIT_HEADROOM = 100      # stay under the 120/min cap
 PENALTY_SECONDS = 30.0         # penalty box after HTTP 429
 
@@ -170,11 +169,6 @@ class SimulationAPIClient:
 
     def get_portfolio(self) -> dict[str, Any]:
         response = self._request("GET", "/api/v1/portfolio")
-        response.raise_for_status()
-        return self._json(response)
-
-    def get_orders(self) -> dict[str, Any]:
-        response = self._request("GET", "/api/v1/orders")
         response.raise_for_status()
         return self._json(response)
 

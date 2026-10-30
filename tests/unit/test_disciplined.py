@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 
-import pytest
-
 from src.news.filter import NewsFilter, score_text
 from src.strategy import disciplined as D
 from src.strategy.backtest import replay

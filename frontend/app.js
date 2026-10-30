@@ -111,30 +111,12 @@ function setText(id, value) {
 }
 
 
-function setHTML(id, html) {
-    const element = $(id);
-
-    if (!element) return;
-
-    element.innerHTML = html;
-}
-
-
 function showElement(id, visible) {
     const element = $(id);
 
     if (!element) return;
 
     element.hidden = !visible;
-}
-
-
-function setClass(id, className) {
-    const element = $(id);
-
-    if (!element) return;
-
-    element.className = className;
 }
 
 

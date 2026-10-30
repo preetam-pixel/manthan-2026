@@ -722,12 +722,6 @@ section {
    10. CHARTS
    ============================================================ */
 
-.charts-section {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-}
-
 .chart-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

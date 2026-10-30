@@ -1,6 +1,6 @@
 import pytest
 
-from src.strategy.backtest import replay, walk_forward
+from src.strategy.backtest import replay
 
 
 def make_rows(closes, ticker="TEST"):
@@ -41,12 +41,6 @@ def test_out_of_order_rows_rejected():
     rows = make_rows([100.0, 101.0])[::-1]
     with pytest.raises(ValueError):
         replay(rows)
-
-
-def test_walk_forward_windows():
-    rows = make_rows([100.0] * 30)
-    results = walk_forward(rows, 3)
-    assert len(results) == 3 and all(r["trades"] == 0 for r in results)
 
 
 def test_utilization_reported():

@@ -16,7 +16,7 @@ from src.contracts import Signal
 from src.journal import DecisionJournal
 from src.news.filter import NewsFilter
 from src.tax.engine import TaxBook
-from src.execution.client import APIError, OrderResult, SimulationAPIClient
+from src.execution.client import OrderResult, SimulationAPIClient
 from src.market_data.consumer import (TOPIC_NEWS, TOPIC_TICKS, is_preflight,
                                       is_price_tick, normalize_tick,
                                       parse_history, parse_history_bars,
@@ -256,13 +256,6 @@ class Bot:
             return True
         return (self._market_moved_at is not None and self._market_moved_at >= self._last_sync_at
                 and now - self._market_moved_at >= SETTLE_RESYNC_S)
-
-    def resync_if_due(self) -> None:
-        """Re-read the exchange in the quiet gap after a day's orders instead of waiting for the
-        next day's first message. Shares the state lock with handle_message."""
-        with self._state_lock:
-            if self._resync_due():
-                self.sync_portfolio()
 
     def on_timer(self) -> None:
         """Called every TIMER_S by a thread: send BUYs whose wait for headlines is over, then

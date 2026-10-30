@@ -186,12 +186,12 @@ def test_idle_timer_rereads_the_exchange_after_fills_without_waiting_for_a_messa
     now[0] = 1.0
     bot.handle_message("market.ticks", tick("AAA", 103.0, "2026-01-11"))      # BUY fills
     calls = api.portfolio_calls
-    bot.resync_if_due()
+    bot.on_timer()
     assert api.portfolio_calls == calls                                        # too soon
     now[0] = 1.0 + SETTLE_RESYNC_S
-    bot.resync_if_due()                                                        # quiet gap: no message needed
+    bot.on_timer()                                                        # quiet gap: no message needed
     assert api.portfolio_calls == calls + 1
-    bot.resync_if_due()
+    bot.on_timer()
     assert api.portfolio_calls == calls + 1
 
 
@@ -318,7 +318,7 @@ def test_exchange_reread_after_each_days_ticks_even_without_trades():
     bot.handle_message("market.ticks", tick("AAA", 100.0, "2026-01-11"))      # no trade: prices moved
     calls = api.portfolio_calls
     now[0] = 1.0 + SETTLE_RESYNC_S
-    bot.resync_if_due()
+    bot.on_timer()
     assert api.orders == [] and api.portfolio_calls == calls + 1
 
 
@@ -334,12 +334,12 @@ def test_failed_resync_backs_off_instead_of_retrying_every_second():
     now[0] = 1.0
     bot.handle_message("market.ticks", tick("AAA", 100.0, "2026-01-11"))
     now[0] = 4.0
-    bot.resync_if_due()                                    # attempt 1 fails
+    bot.on_timer()                                    # attempt 1 fails
     calls = api.portfolio_calls
     for step in range(1, int(SYNC_RETRY_S)):
         now[0] = 4.0 + step
-        bot.resync_if_due()
+        bot.on_timer()
     assert api.portfolio_calls == calls                    # no retries while backing off
     now[0] = 4.0 + SYNC_RETRY_S
-    bot.resync_if_due()
+    bot.on_timer()
     assert api.portfolio_calls == calls + 1

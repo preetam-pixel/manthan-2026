@@ -114,24 +114,3 @@ def replay(rows: Iterable[dict], starting_cash: float = 1_000_000.0,
         "equity_by_date": equity_by_date,
         "trade_log": trades,
     }
-
-
-def compare(rows: list[dict], factories: dict[str, Callable], **kw) -> dict[str, dict]:
-    """Replay the same rows through several strategies for a like-for-like comparison."""
-    return {name: replay(rows, strategy_factory=f, **kw) for name, f in factories.items()}
-
-
-def walk_forward(rows: list[dict], windows: int, **kw) -> list[dict]:
-    """Replay consecutive, non-overlapping chronological windows.
-
-    Parameters are fixed (nothing is fitted), so each window is an independent
-    out-of-sample replay with fresh warm-up.
-    """
-    if windows < 1:
-        raise ValueError("windows must be >= 1")
-    size = len(rows) // windows
-    out = []
-    for i in range(windows):
-        chunk = rows[i * size:(i + 1) * size] if i < windows - 1 else rows[i * size:]
-        out.append(replay(chunk, **kw))
-    return out
