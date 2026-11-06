@@ -23,7 +23,7 @@
 py -m src.app --live --dashboard
 ```
 
-Healthy startup log: `Dashboard: http://127.0.0.1:8080/`, `Synced holdings`, `Universe: [...]`, `Strategy: sma_pro`, `Connected to Kafka`.
+Healthy startup log: `Dashboard: http://127.0.0.1:8080/`, `Synced holdings`, `Universe: [...]`, `Strategy: sma_news`, `Connected to Kafka`.
 During pre-flight: `heartbeat ack <seq>` every 2–3 s; the portal shows **Ready**.
 
 Open http://127.0.0.1:8080/ and press **Start** (the bot boots stopped). Orders are sent only when the stage is
@@ -52,7 +52,7 @@ new orders only (heartbeats and data continue).
 
 1. **Problem → approach (30 s):** "Disciplined, explainable, tax-aware. Evidence first."
 2. **Dashboard header (30 s):** stage, heartbeat, Kafka, Start/Stop — explain Stop ≠ disconnect.
-3. **Evidence panel (90 s):** equity vs buy-and-hold, quarter chart (Q3: market −13.1%, bot −2.2%), robustness grid, news study, rejected ideas.
+3. **Evidence panel (90 s):** equity vs buy-and-hold, quarter chart (Q3: market −13.1%, bot +3.1%), robustness grid, news study, rejected ideas.
 4. **Decision journal (60 s):** pick one trade; read the reason, risk verdict, exchange answer, tax term. Download CSV.
 5. **Tax panel (45 s):** FIFO, STCG/LTCG, set-off, harvesting window before 31 March.
 6. **Reliability (45 s):** uncertain-order reconciliation, Kafka reconnect, local-only dashboard.
@@ -60,7 +60,88 @@ new orders only (heartbeats and data continue).
 ## Fallback (no network)
 
 ```bash
-py -m scripts.demo_dashboard data/stream_20261029_215617.jsonl --strategy sma_pro --speed 40 --start
+py -m scripts.demo_dashboard data/stream_20261029_215617.jsonl --strategy sma_news --speed 40 --start
 ```
 
 Same bot code with a simulated exchange that fills at the close; clearly say it is a replay.
+
+---
+
+## MANTHAN 2026 — MarketPulse Demo Runbook (Member 4 QA)
+
+> Written by Member 4 before PR 3 merged. The test counts and live-integration status below are as recorded then. The suite now has 189 tests, and the bot has since traded on the exchange sandbox (see the README).
+
+### 1. Purpose
+
+Demonstrate the simulated stock-trading system, its strategy decisions, risk controls, portfolio reconciliation, and QA evidence.
+
+### 2. Current QA Status
+
+- Unit tests collected: 116
+- Unit tests passed: 116
+- Test failures in the recorded run: 0
+- Live simulator and Kafka integration: Not yet verified according to README.md.
+
+Passing unit tests do not establish that the complete live system is operational.
+
+### 3. Pre-Demo Checklist
+
+- [ ] Run from the project root.
+- [ ] Confirm dependencies are installed using `python -m pip install -r requirements.txt`.
+- [ ] Run `python -m pytest -q`.
+- [ ] Confirm the expected test results.
+- [ ] Review `CONTRACTS.md` and `docs/API_VERIFIED.md`.
+- [ ] Confirm the simulator environment and permitted operating mode with the backend owner.
+- [ ] Never expose authentication tokens or other secrets.
+- [ ] Keep a fallback using test output and prepared screenshots.
+
+### 4. Demo Flow
+
+1. Introduce MarketPulse and explain that it is a simulated trading system.
+2. Explain the market-data input and supported ticker universe.
+3. Explain the SMA8 strategy and its documented entry/exit thresholds.
+4. Show how a signal passes through the risk manager.
+5. Explain how an approved order is submitted through the execution adapter.
+6. Show portfolio reconciliation and resulting holdings/cash when verified evidence is available.
+7. Explain that news is informational and is not itself a trade trigger.
+8. Present QA results and discuss limitations.
+
+Only demonstrate live order submission after the environment and integration have been explicitly verified.
+
+### 5. Important QA Scenarios
+
+- Normal market snapshot and valid signal.
+- Stale or missing market data.
+- Duplicate tick or signal.
+- Insufficient cash or position limit.
+- API timeout, malformed response, or uncertain order status.
+- Paused or completed simulation.
+- News timestamp after the trading decision.
+- Portfolio reconciliation and rejected orders.
+
+For each scenario, record the test name, expected behavior, actual result, and pass/fail status.
+
+### 6. Fallback Plan
+
+If the live simulator, Kafka, or API is unavailable:
+
+1. Do not repeatedly retry uncertain orders.
+2. Use recorded pytest output as evidence of unit-test results.
+3. Use prepared screenshots or mock fixtures to explain the expected workflow.
+4. Clearly label mocked behavior and previously recorded results.
+5. Do not present simulated screenshots as proof of live integration.
+
+### 7. Limitations
+
+- Unit tests use fakes; live integration is not yet confirmed.
+- Historical backtest results do not guarantee future performance.
+- Strategy evaluation and market-data limitations should be explained using `docs/STRATEGY_EVAL.md`.
+- Any remaining integration failures must be disclosed.
+
+### 8. Final Sign-Off
+
+- [ ] QA results recorded.
+- [ ] Demo steps rehearsed.
+- [ ] Fallback evidence prepared.
+- [ ] Live integration status accurately disclosed.
+- [ ] Final presentation reviewed by the team.
