@@ -12,11 +12,11 @@ tax is accounted for.
 - Exchange is the source of truth: portfolio re-synced every 15 s, 2 s after each fill and after any uncertain/cash rejection; the dashboard shows the exchange's own figures, so it matches the portal.
 - Heartbeat: throttled to one ACK per 2 s (pre-flight bursts reached ~20 messages/s), exempt from our local rate budget, retried after 1 s. Verified live in the organisers' pre-flight test.
 - Client-side validation mirrors every documented rejection code (quantity 1..1,000,000, tradable ticker, cash, running stage), so the exchange should never have to reject us.
-- 160+ unit tests, all offline (fake API, fake Kafka, real HTTP server for the dashboard). Bugs found by testing against real data and fixed: sandbox orders blocked by a stage check, dashboard freeze when P&L is exactly 0, console crash on a zero-width space in a headline, news flooding the event feed.
+- 189 unit tests, all offline (fake API, fake Kafka, real HTTP server for the dashboard). Bugs found by testing against real data and fixed: sandbox orders blocked by a stage check, dashboard freeze when P&L is exactly 0, console crash on a zero-width space in a headline, news flooding the event feed.
 
 ## Pillar 2 — Strategy innovation & analytical depth
 
-We recorded the whole stream (500 days × 10 stocks, 8,125 headlines) and replayed it through the real code.
+We recorded the whole stream (500 days × 10 stocks, 8,126 headlines) and replayed it through the real code.
 
 | What we tested | Finding | Decision |
 |---|---|---|
@@ -30,12 +30,13 @@ We recorded the whole stream (500 days × 10 stocks, 8,125 headlines) and replay
 
 The chosen core is the short-term SMA band. Its behaviour is asymmetric: per quarter, `sma_pro` made
 +7.6%, +12.0%, **−2.2%**, +7.5% while the market made +15.6%, +30.2%, **−13.1%**, +9.5% — it keeps
-roughly half of rallies and a sixth of sell-offs. We deliberately did not tune the window/band to the
+roughly half of rallies and a sixth of sell-offs. With the news veto, the final bot `sma_news` made
++8.9%, +11.3%, **+3.1%**, +9.6%. We deliberately did not tune the window/band to the
 single best cell; the whole neighbourhood works, which is what makes it credible on unseen data.
 
 ## Pillar 3 — Execution speed & capital efficiency
 
-- The decision path is in-process Python: sub-millisecond per tick in replay; the measured value is shown live (avg / p95 / max) and printed on shutdown. Orders carry the simulated `date` so the platform can score reaction speed.
+- Sells go out at once; a BUY waits 0.5 s for the day's headlines (0.55 s at most in replay). The measured value is shown live (avg / p95 / max) and printed on shutdown. Orders carry the simulated `date` so the platform can score reaction speed.
 - `sma_pro` deploys 1.5× the original size (₹75k per trade, ₹1.5L per-stock cap): average utilisation ~45% vs ~33%, return +28.8% vs +17.9%, drawdown 10.5% vs 7.1%. We chose moderate, not maximal, deployment: 2× gave +31.7% but 12.5% drawdown.
 - The risk gate checks cash before sending, so capital shortfalls show up as logged blocks, not exchange rejections (0 rejected orders in the 500-day replay).
 
@@ -55,7 +56,7 @@ single best cell; the whole neighbourhood works, which is what makes it credible
 ## Questions we expect
 
 **Why not just buy and hold? It made +44.9%.** It also fell 13% in one quarter. The jury asked for
-moderate, steady gains with downside protection; our bot lost 2.2% in that quarter. Buy-and-hold is a
+moderate, steady gains with downside protection; our bot gained 3.1% in that quarter. Buy-and-hold is a
 bet on the market going up — on a confidential period we cannot know that.
 
 **Isn't SMA8 too simple?** Simplicity is a feature when the data has little signal. We tested twelve
