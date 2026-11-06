@@ -1,1 +1,0 @@
-# Frontend — Member 1\nRead-only dashboard. Start with fixtures. Display status, portfolio, positions, latest signals/orders. No order submission from UI.\n

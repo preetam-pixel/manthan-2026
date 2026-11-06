@@ -2,9 +2,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.features.build import atr, pct_change, rsi, volume_ratio
+from src.features.build import atr, rsi, volume_ratio
 from src.strategy.adaptive import MIN_BARS, AdaptiveStrategy
-from src.strategy.backtest import compare, replay
+from src.strategy.backtest import replay
 from src.strategy.registry import create
 from src.strategy.sma import SMAStrategy
 
@@ -44,11 +44,6 @@ def test_volume_ratio_and_missing():
     assert volume_ratio([100] * 20, 200) == pytest.approx(2.0)
     assert volume_ratio([100] * 2, 200) is None
     assert volume_ratio([100] * 20, None) is None
-
-
-def test_pct_change():
-    assert pct_change([100, 110], 1) == pytest.approx(0.10)
-    assert pct_change([100], 1) is None
 
 
 # ---- strategy -----------------------------------------------------
@@ -145,10 +140,9 @@ def rows_series():
     return rows
 
 
-def test_compare_runs_both_strategies_with_fees():
-    res = compare(rows_series(), {"sma_band": SMAStrategy, "adaptive": AdaptiveStrategy})
-    assert set(res) == {"sma_band", "adaptive"}
-    for r in res.values():
+def test_both_strategies_replay_with_fees():
+    for factory in (SMAStrategy, AdaptiveStrategy):
+        r = replay(rows_series(), strategy_factory=factory)
         assert r["trades"] >= 2 and r["fees_paid"] == pytest.approx(55.34)
     assert replay(rows_series(), strategy_factory=AdaptiveStrategy) == \
         replay(rows_series(), strategy_factory=AdaptiveStrategy)

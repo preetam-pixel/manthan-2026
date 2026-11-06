@@ -1,0 +1,67 @@
+
+{
+  "events": [
+    {
+      "seq": 1042,
+      "timestamp": "2026-10-29T14:30:00Z",
+      "level": "INFO",
+      "event_type": "HEARTBEAT",
+      "message": "Heartbeat received successfully",
+      "ticker": null,
+      "raw": {
+        "seq": 1042,
+        "status": "ok"
+      }
+    },
+    {
+      "seq": 1041,
+      "timestamp": "2026-10-29T14:29:58Z",
+      "level": "INFO",
+      "event_type": "SIGNAL",
+      "message": "BUY signal generated for HAVN",
+      "ticker": "HAVN",
+      "raw": {
+        "strategy": "SMA_CROSSOVER",
+        "signal": "BUY",
+        "price": 252.75
+      }
+    },
+    {
+      "seq": 1040,
+      "timestamp": "2026-10-29T14:29:55Z",
+      "level": "WARN",
+      "event_type": "RISK_BLOCK",
+      "message": "Order blocked: maximum position limit reached",
+      "ticker": "NOVA",
+      "raw": {
+        "reason": "MAX_POSITION_LIMIT",
+        "requested_quantity": 100
+      }
+    },
+    {
+      "seq": 1039,
+      "timestamp": "2026-10-29T14:29:50Z",
+      "level": "INFO",
+      "event_type": "ORDER_FILLED",
+      "message": "BUY order filled for ZEN",
+      "ticker": "ZEN",
+      "raw": {
+        "side": "BUY",
+        "quantity": 75,
+        "price": 95.20
+      }
+    },
+    {
+      "seq": 1038,
+      "timestamp": "2026-10-29T14:29:45Z",
+      "level": "ERROR",
+      "event_type": "ORDER_REJECTED",
+      "message": "Order rejected: insufficient simulated cash",
+      "ticker": "HAVN",
+      "raw": {
+        "reason": "INSUFFICIENT_CASH",
+        "quantity": 500
+      }
+    }
+  ]
+}

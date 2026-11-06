@@ -1,0 +1,33 @@
+
+{
+  "positions": [
+    {
+      "ticker": "HAVN",
+      "quantity": 100,
+      "average_price": 245.50,
+      "current_price": 252.75,
+      "market_value": 25275.00,
+      "unrealized_pnl": 725.00,
+      "pnl_percent": 2.95
+    },
+    {
+      "ticker": "NOVA",
+      "quantity": 50,
+      "average_price": 180.00,
+      "current_price": 176.40,
+      "market_value": 8820.00,
+      "unrealized_pnl": -180.00,
+      "pnl_percent": -2.00
+    },
+    {
+      "ticker": "ZEN",
+      "quantity": 75,
+      "average_price": 92.00,
+      "current_price": 95.20,
+      "market_value": 7140.00,
+      "unrealized_pnl": 240.00,
+      "pnl_percent": 3.48
+    }
+  ],
+  "updated_at": "2026-10-29T14:30:00Z"
+}

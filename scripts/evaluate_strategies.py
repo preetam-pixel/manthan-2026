@@ -1,6 +1,6 @@
 """Replay every registered strategy over saved history in three windows.
 
-Usage: py scripts/evaluate_strategies.py history.json
+Usage: py -m scripts.evaluate_strategies history.json
 history.json: {"TICKER": [{"date","open","high","low","close","volume"}, ...], ...}
 (as returned in `prices` by GET /api/v1/stocks/:ticker/history). Offline only.
 """

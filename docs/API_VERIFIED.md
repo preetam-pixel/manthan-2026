@@ -35,3 +35,14 @@ Source: organizer PDF, not independently tested against the live gateway.
 - `GET /api/v1/portfolio` and `/portfolio/cash` exact field names (cash read from `cash`/`available_cash`/`cash_balance`; unknown cash is never treated as zero).
 - `GET /api/v1/orders` schema (not used; uncertain orders are reconciled from the portfolio instead).
 - Exact order error body shape (code read from `error` or `code`).
+
+## Verified against the live gateway (2026-10-30, sandbox)
+- `GET /api/v1/portfolio` top-level fields include: `available_cash`, `cash_balance`, `margin_locked`, `initial_capital`,
+  `portfolio_market_value`, `total_wealth`, `realized_pnl`, `unrealized_pnl`, `total_pnl`, `total_pnl_pct`, `total_charges`,
+  `total_taxes`, `stcg_gains`, `stcg_losses`, `ltcg_gains`, `ltcg_losses`, `taxable_stcg`, `taxable_ltcg`, `simulated_date`,
+  `is_verified`, `is_blocked`, `total_orders`, `rejected_orders_count`, `error_count`, `cash_utilization_pct`.
+- `holdings[]`: `ticker`, `quantity`, `avg_buy_price` (also `average_buy_price`), `current_price`, `market_value`,
+  `unrealized_pnl`, `unrealized_pnl_pct`, `is_short`. The bot uses `avg_buy_price` as the tax cost basis after a restart.
+- `GET /api/v1/orders`: `{orders: [...], total, page, limit, totalPages, summary: {total, filled, rejected, totalRealizedPnl, totalCharges}}`;
+  each order has `order_id`, `ticker`, `action`, `quantity`, `execution_price`, `total_value`, `brokerage`, `realized_pnl`.
+- Real fills observed: brokerage Rs 20 per order, filled at the day's close; 5/5 orders filled, 0 rejected.

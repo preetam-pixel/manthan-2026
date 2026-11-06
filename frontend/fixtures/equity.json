@@ -1,0 +1,55 @@
+
+{
+  "equity": [
+    {
+      "timestamp": "2026-10-29T09:30:00Z",
+      "wealth": 100000,
+      "cash": 70000,
+      "invested": 30000,
+      "pnl": 0
+    },
+    {
+      "timestamp": "2026-10-29T10:00:00Z",
+      "wealth": 100450,
+      "cash": 70000,
+      "invested": 30450,
+      "pnl": 450
+    },
+    {
+      "timestamp": "2026-10-29T10:30:00Z",
+      "wealth": 100200,
+      "cash": 70000,
+      "invested": 30200,
+      "pnl": 200
+    },
+    {
+      "timestamp": "2026-10-29T11:00:00Z",
+      "wealth": 101100,
+      "cash": 70000,
+      "invested": 31100,
+      "pnl": 1100
+    },
+    {
+      "timestamp": "2026-10-29T11:30:00Z",
+      "wealth": 100850,
+      "cash": 70000,
+      "invested": 30850,
+      "pnl": 850
+    },
+    {
+      "timestamp": "2026-10-29T12:00:00Z",
+      "wealth": 101250,
+      "cash": 70000,
+      "invested": 31250,
+      "pnl": 1250
+    },
+    {
+      "timestamp": "2026-10-29T12:30:00Z",
+      "wealth": 101600,
+      "cash": 70000,
+      "invested": 31600,
+      "pnl": 1600
+    }
+  ],
+  "updated_at": "2026-10-29T12:30:00Z"
+}

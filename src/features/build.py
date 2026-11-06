@@ -51,10 +51,3 @@ def volume_ratio(prior_volumes: Sequence[Optional[float]], current: Optional[flo
     if current is None or current <= 0 or len(vols) < max(3, window // 2):
         return None
     return current / (sum(vols) / len(vols))
-
-
-def pct_change(closes: Sequence[float], periods: int) -> Optional[float]:
-    """Return over ``periods`` bars ending at the last close."""
-    if len(closes) <= periods or closes[-periods - 1] <= 0:
-        return None
-    return closes[-1] / closes[-periods - 1] - 1.0

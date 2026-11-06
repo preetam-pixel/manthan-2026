@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 
-import pytest
-
 from src.news.filter import NewsFilter, score_text
 from src.strategy import disciplined as D
 from src.strategy.backtest import replay
@@ -140,3 +138,17 @@ def test_backtest_runs_every_strategy_deterministically():
         r1 = replay(rows, strategy_factory=f)
         assert r1 == replay(rows, strategy_factory=f), name
         assert r1["final_equity"] > 0
+
+
+def test_scaled_ensemble_sizes_up_but_keeps_all_rules():
+    base, big = create("ensemble"), create("ensemble_scaled")
+    assert (base.notional, base.max_positions) == (50_000, 4)
+    assert (big.notional, big.risk_per_trade, big.max_positions) == (100_000, 5_000, 8)
+    assert big.min_entry_votes == 2 and len(big.entries) == len(base.entries)
+
+
+def test_scaled_ensemble_never_exceeds_position_cap():
+    closes = {t: [100 + 5 * ((i * (k + 3)) % 7) - 2 * (i % 5) for i in range(90)] for k, t in enumerate("ABCDEFGHIJ")}
+    res = replay(history_rows(closes), strategy_factory=create.__globals__["STRATEGIES"]["ensemble_scaled"])
+    for _, _, act, qty, px in res["trade_log"]:
+        assert act != "BUY" or qty * px <= 100_000

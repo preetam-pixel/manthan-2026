@@ -5,33 +5,50 @@ fake events and a fake API; Kafka is only touched in ``run``.
 """
 import json
 import os
+import socket
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from src.contracts import Signal
-from src.execution.client import APIError, OrderResult, SimulationAPIClient
+from src.journal import DecisionJournal
+from src.news.filter import NewsFilter
+from src.tax.engine import TaxBook
+from src.execution.client import OrderResult, SimulationAPIClient
 from src.market_data.consumer import (TOPIC_NEWS, TOPIC_TICKS, is_preflight,
                                       is_price_tick, normalize_tick,
                                       parse_history, parse_history_bars,
                                       preflight_seq)
-from src.news.consumer import format_news
+from src.news.consumer import format_news, keyword_counts
 from src.portfolio.state import PortfolioState
 from src.risk.manager import RiskManager
 from src.strategy.registry import DEFAULT as DEFAULT_STRATEGY, create as create_strategy
-from src.strategy.sma import BAND, SMA_N, SMAStrategy
+from src.strategy.sma import BAND, MAX_POS_VALUE, SMA_N, SMAStrategy
 
 STAGE_CACHE_S = 2.5          # /stage is polled at most this often
 WARM_START_PER_PREFLIGHT = 5  # history fetches per preflight tick (keeps ACKs prompt)
 HEARTBEAT_RETRY_INTERVAL_S = 1.0  # minimum wait before retrying a failed ACK
 HEARTBEAT_MIN_INTERVAL_S = 2.0  # one ACK per 15 s is required; bursts of preflight ticks must not flood the API
 HISTORY_DAYS = 30            # calendar days; comfortably covers 8 trading closes
+TRADING_STAGES = ("simulation", "development")   # stages in which orders may be sent
+RESYNC_S = 15.0               # re-read the exchange portfolio this often (exchange is the source of truth;
+                              # also keeps the dashboard within 15 s of the portal; 4 requests/min)
+SETTLE_RESYNC_S = 2.0         # ... and this long after each day's ticks/fills: the exchange revalues every
+                              # holding at each close (one request per simulated day, ~9/min)
+SYNC_RETRY_S = 5.0            # after a failed portfolio read, wait this long (network down: no request flood)
 UNWIND_DAYS = 1              # in the live run, close longs when this many days remain
 
 
 def _log(*a):
-    print(time.strftime("%H:%M:%S"), *a, flush=True)
+    line = " ".join(str(x) for x in (time.strftime("%H:%M:%S"), *a))
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        # Headlines can hold characters a Windows console cannot encode (e.g. zero-width space);
+        # logging must never raise, or the rest of the event would be skipped.
+        print(line.encode("ascii", "replace").decode("ascii"), flush=True)
 
 
 def _event_time(event: dict) -> datetime:
@@ -50,9 +67,11 @@ class Bot:
                  risk: Optional[RiskManager] = None,
                  portfolio: Optional[PortfolioState] = None,
                  log: Callable = _log, clock: Callable[[], float] = time.monotonic,
-                 warm_start: bool = True):
+                 warm_start: bool = True, dash=None, trading_enabled: bool = True,
+                 strategy_name: Optional[str] = None, journal: Optional[DecisionJournal] = None):
         self.api = api
         self.strategy = strategy or SMAStrategy()
+        self._own_risk = risk is None
         self.risk = risk or RiskManager()
         self.portfolio = portfolio or PortfolioState()
         self.log = log
@@ -68,17 +87,100 @@ class Bot:
         self._next_ack_after: float = 0.0
         self.latencies: list[float] = []
 
+        self.dash = dash                          # optional read-only DashboardState
+        self.trading_enabled = trading_enabled    # Start/Stop switch; False = log only, send nothing
+        self.strategy_name = strategy_name or getattr(self.strategy, "name", "sma_band")
+        self._pending_strategy: Optional[str] = None
+        self._control_lock = threading.Lock()
+        self.tax = TaxBook()                      # FIFO lots -> STCG/LTCG estimate, harvesting
+        self.journal = journal or DecisionJournal()
+        self.news_context = NewsFilter()          # recent headline risk per ticker, for explanations
+        self._last_sync_at: Optional[float] = None
+        self._market_moved_at: Optional[float] = None   # last tick or fill: exchange figures changed
+        self._sync_retry_at: Optional[float] = None     # after a failed sync, not before this
+        self._state_lock = threading.RLock()     # message handling vs. the idle-resync timer
+        self._pending_buys: dict[str, tuple] = {}   # ticker -> (signal, price, date, received_at)
+        self._sync_risk_cap()
+
+    def _sync_risk_cap(self) -> None:
+        """The per-ticker cap follows the active strategy unless a custom RiskManager was injected."""
+        if self._own_risk:
+            self.risk.max_pos_value = getattr(self.strategy, "max_position_value", MAX_POS_VALUE)
+
+    def _d(self, method: str, *args, **kwargs) -> None:
+        """Call a dashboard hook; the dashboard must never be able to break trading."""
+        if self.dash is None:
+            return
+        try:
+            getattr(self.dash, method)(*args, **kwargs)
+        except Exception:
+            pass
+
+    # ---- dashboard controls (called from the HTTP thread) -----------
+    def set_trading(self, enabled: bool) -> None:
+        with self._control_lock:
+            self.trading_enabled = bool(enabled)
+        self.log("TRADING", "ENABLED" if enabled else "STOPPED (heartbeats and data continue)")
+        self._d("record_event", "SYSTEM", "Trading started" if enabled else "Trading stopped",
+                reason="dashboard control")
+
+    def request_strategy(self, name: str) -> Optional[str]:
+        """Queue a strategy switch; applied by the bot thread between messages. Returns an error or None."""
+        with self._control_lock:
+            if self.trading_enabled:
+                return "Stop trading before changing strategy"
+            try:
+                create_strategy(name)               # validate the name only
+            except ValueError as exc:
+                return str(exc)
+            self._pending_strategy = name
+        return None
+
+    def _apply_pending_strategy(self) -> None:
+        with self._control_lock:
+            name, self._pending_strategy = self._pending_strategy, None
+        if not name or name == self.strategy_name:
+            return
+        self.strategy = create_strategy(name)
+        self.strategy_name = name
+        self._pending_buys.clear()
+        self._sync_risk_cap()
+        self._last_date.clear()
+        self.strategy.news = getattr(self.strategy, "news", None)  # keep attribute present
+        if hasattr(self.strategy, "sync_holdings"):
+            self.strategy.sync_holdings(dict(self.portfolio.held))
+        for ticker in sorted(self.universe or ()):
+            if self.warm_start:
+                self._warm_ticker(ticker)
+        self.log("STRATEGY switched to", name)
+        self._d("record_event", "SYSTEM", f"Strategy switched to {name}", reason="dashboard control")
+        if self.dash is not None:
+            self.dash.strategy = name
+
     # ---- startup ----------------------------------------------------
     def sync_portfolio(self) -> bool:
         try:
-            self.portfolio.sync(self.api.get_portfolio())
+            if self.portfolio.sync(self.api.get_portfolio()):
+                self._warn_account_reset()
+            self._last_sync_at = self.clock()
+            self._sync_retry_at = None
             if hasattr(self.strategy, "sync_holdings"):
                 self.strategy.sync_holdings(dict(self.portfolio.held))
             self.log("Synced holdings:", dict(self.portfolio.held), "cash:", self.portfolio.cash)
             return True
         except Exception as exc:  # network / schema problems: stay un-synced, risk blocks orders
+            self._sync_retry_at = self.clock() + SYNC_RETRY_S
             self.log("portfolio sync failed", exc)
             return False
+
+    def _warn_account_reset(self) -> None:
+        """The exchange account restarted under us: this session's counts and tax estimate
+        still include orders that are no longer on it."""
+        r = self.portfolio.account_reset
+        detail = (f"exchange order count fell from {r['orders_before']} to {r['orders_after']}; "
+                  f"orders before this are no longer on the account")
+        self.log("WARNING: EXCHANGE ACCOUNT RESET -", detail)
+        self._d("record_event", "ACCOUNT_RESET", "Exchange account reset", reason=detail, data=dict(r))
 
     def startup(self) -> None:
         """Sync portfolio, discover the universe and warm-start every ticker.
@@ -90,6 +192,7 @@ class Bot:
         self._load_universe()
         while self._warm_pending:
             self._warm_some()
+        self.refresh_stage(force=True)               # so the dashboard has simulation info immediately
 
     def _load_universe(self) -> None:
         if self.universe is not None:
@@ -106,16 +209,19 @@ class Bot:
             ticker = self._warm_pending.pop(0)
             if ticker in self._last_date:
                 continue  # live ticks already seen
-            try:
-                response = self.api.get_history(
-                    ticker, getattr(self.strategy, "history_days", HISTORY_DAYS))
-                if hasattr(self.strategy, "warm_start_bars"):
-                    self.strategy.warm_start_bars(ticker, parse_history_bars(response))
-                else:
-                    closes = [c for _, c in parse_history(response)]
-                    self.strategy.warm_start(ticker, closes[-SMA_N:])
-            except Exception as exc:
-                self.log("warm-start failed (cold start)", ticker, exc)
+            self._warm_ticker(ticker)
+
+    def _warm_ticker(self, ticker: str) -> None:
+        try:
+            response = self.api.get_history(
+                ticker, getattr(self.strategy, "history_days", HISTORY_DAYS))
+            if hasattr(self.strategy, "warm_start_bars"):
+                self.strategy.warm_start_bars(ticker, parse_history_bars(response))
+            else:
+                closes = [c for _, c in parse_history(response)]
+                self.strategy.warm_start(ticker, closes[-SMA_N:])
+        except Exception as exc:
+            self.log("warm-start failed (cold start)", ticker, exc)
 
     # ---- simulator state -------------------------------------------
     def refresh_stage(self, force: bool = False) -> bool:
@@ -127,18 +233,83 @@ class Bot:
             self.stage_info = stage if isinstance(stage, dict) else {}
             # live /stage reports lowercase status ("running"); the PDF shows uppercase
             status = str(stage.get("status") or "").upper()
-            self.sim_running = str(stage.get("stage") or "").lower() == "simulation" and status == "RUNNING"
+            # Orders are accepted while the stream is running in the live "simulation" stage and in the
+            # "development" sandbox (the brief says the sandbox is for testing API orders). Never in
+            # "preflight", "ready", paused or completed.
+            self.sim_running = (str(stage.get("stage") or "").lower() in TRADING_STAGES
+                                and status == "RUNNING")
         except Exception as exc:
             self.sim_running = False   # uncertain state: do not trade
             self.log("stage error", exc)
         self._stage_at = now
         return self.sim_running
 
+    def _resync_due(self) -> bool:
+        """Every RESYNC_S, and SETTLE_RESYNC_S after the last tick or fill (once the day's burst is
+        done), so the exchange's own figures, shown on the dashboard as on the portal, are seconds old."""
+        if self._last_sync_at is None or self.portfolio.uncertain:
+            return False
+        now = self.clock()
+        if self._sync_retry_at is not None and now < self._sync_retry_at:
+            return False                             # last attempt failed: back off
+        if now - self._last_sync_at >= RESYNC_S:
+            return True
+        return (self._market_moved_at is not None and self._market_moved_at >= self._last_sync_at
+                and now - self._market_moved_at >= SETTLE_RESYNC_S)
+
+    def on_timer(self) -> None:
+        """Called every TIMER_S by a thread: send BUYs whose wait for headlines is over, then
+        re-read the exchange if due. Never runs at the same time as handle_message."""
+        with self._state_lock:
+            self.flush_pending_buys()
+            if self._resync_due():
+                self.sync_portfolio()
+
+    def flush_pending_buys(self) -> None:
+        """Send, or skip on bad news, each BUY that has waited wait_for_news_s for the day's
+        headlines (they arrive ~150 ms after the prices; the order still fills at that close)."""
+        if not self._pending_buys:
+            return
+        wait = getattr(self.strategy, "wait_for_news_s", 0.0)
+        news = getattr(self.strategy, "news", None)
+        now = self.clock()
+        for ticker, (signal, price, date, received_at) in list(self._pending_buys.items()):
+            if now - received_at < wait:
+                continue
+            del self._pending_buys[ticker]
+            score = news.recent_score(ticker, date) if news is not None else 0.0
+            if news is not None and score <= news.veto_threshold:
+                self._skip_on_news(signal, price, date, score, news)
+            else:
+                self._execute(signal, price, date, received_at)
+
+    def _skip_on_news(self, signal: Signal, price: float, date: Optional[str], score: float, news) -> None:
+        reason = (f"news veto: last {news.lookback_days} days of headlines score {score:+.0f} "
+                  f"(skip at <= {news.veto_threshold:+.0f})")
+        self.log("NEWS VETO - not buying", signal.quantity, signal.ticker, f"({reason})")
+        self._d("record_event", "RISK_BLOCK", f"BUY {signal.quantity} {signal.ticker} skipped",
+                ticker=signal.ticker, reason=reason, simulated_date=date)
+        self.journal.record({"simulated_date": date, "ticker": signal.ticker, "strategy": self.strategy_name,
+                             "action": "BUY", "quantity": signal.quantity, "price": price,
+                             "reason": signal.reason, "news_score": score,
+                             "risk_approved": False, "risk_reason": reason})
+
     # ---- events -----------------------------------------------------
     def handle_message(self, topic: str, event: dict, received_at: Optional[float] = None) -> None:
+        received_at = self.clock() if received_at is None else received_at
+        with self._state_lock:
+            self._handle_message(topic, event, received_at)
+
+    def _handle_message(self, topic: str, event: dict, received_at: float) -> None:
         if not isinstance(event, dict):
             return
-        received_at = self.clock() if received_at is None else received_at
+        if self._resync_due():
+            self.sync_portfolio()                    # exchange-truth reconciliation
+        if self._pending_strategy:
+            try:
+                self._apply_pending_strategy()
+            except Exception as exc:
+                self.log("strategy switch failed", exc)
         try:
             if is_preflight(event):
                 self._on_preflight(event)
@@ -147,6 +318,14 @@ class Bot:
             elif topic == TOPIC_NEWS:
                 if (event.get("data") or {}).get("ticker"):      # skip empty filler events
                     self.log(format_news(event))   # informational only; never trades
+                    data = event.get("data") or {}
+                    pos, neg = keyword_counts(data)
+                    self._d("record_news", data.get("ticker"), event.get("simulated_date"),
+                            data.get("headline"), pos - neg)
+                    self._d("record_event", "NEWS", data.get("headline") or "news", ticker=data.get("ticker"),
+                            simulated_date=event.get("simulated_date"),
+                            reason="informational only; can only veto entries")
+                    self.news_context.update(event)
                     news = getattr(self.strategy, "news", None)
                     if news is not None:                         # entry veto only, never a trade trigger
                         score = news.update(event)
@@ -154,6 +333,11 @@ class Bot:
                             self.log(f"  news risk score {score:+.0f} (entries vetoed at <= {news.veto_threshold:g})")
         except Exception as exc:               # a bad event must not kill the loop
             self.log("event error", exc)
+            self._d("record_event", "ERROR", f"event error: {exc}")
+        try:
+            self.flush_pending_buys()          # the timer also does this; whichever comes first
+        except Exception as exc:
+            self.log("pending buy error", exc)
 
     def _on_preflight(self, event: dict) -> None:
         seq = preflight_seq(event)
@@ -164,6 +348,7 @@ class Bot:
                     self.api.acknowledge_preflight(seq)
                     self._next_ack_after = now + HEARTBEAT_MIN_INTERVAL_S
                     self.log("heartbeat ack", seq)
+                    self._d("record_heartbeat", seq)
                 except Exception as exc:
                     self._next_ack_after = now + HEARTBEAT_RETRY_INTERVAL_S
                     self.log("heartbeat error", exc)
@@ -173,6 +358,8 @@ class Bot:
         self._warm_some()
         if not self.portfolio.synced:
             self.sync_portfolio()
+        if self.dash is not None:
+            self.refresh_stage()                     # cached; keeps the dashboard's stage current in pre-flight
 
     def _on_price_tick(self, event: dict, received_at: float) -> None:
         tick = normalize_tick(event)
@@ -181,14 +368,22 @@ class Bot:
             self.log("ignored malformed tick", ticker, close)
             return
         self.log("TICK", date, ticker, close)
+        self._market_moved_at = self.clock()          # the exchange revalues holdings at this close
 
         prev = self._last_date.get(ticker)
         if date is not None and prev == date:
             return                                   # duplicate delivery
+        waiting = self._pending_buys.get(ticker)
+        if waiting is not None and waiting[2] != date:
+            del self._pending_buys[ticker]           # next day began first: never buy at a stale close
+            self.log("  pending BUY", ticker, waiting[2], "dropped: the next day started before it was sent")
         if date is not None and prev is not None and date < prev:
             self._reset_ticker(ticker)               # sandbox loop restarted at Day 1
         if date is not None:
             self._last_date[ticker] = date
+        self._d("record_tick", ticker, date, tick)
+        if self.dash is not None:
+            self.refresh_stage()                     # keep the dashboard's simulation panel current
 
         self._reconcile_uncertain()
         if self.universe is None:
@@ -197,22 +392,48 @@ class Bot:
             self.sync_portfolio()
         ts = _event_time(event)
         held = self.portfolio.quantity(ticker)
+        if self.tax.quantity(ticker) != held:
+            basis = self.portfolio.avg_price.get(ticker) or float(close)
+            self.tax.sync_quantity(ticker, held, basis, date)   # positions we did not open here
         if hasattr(self.strategy, "on_bar"):
             signal = self.strategy.on_bar(ticker, tick, held, ts)
         else:
+            n = getattr(self.strategy, "n", SMA_N)
+            band = getattr(self.strategy, "band", BAND)
             history = self.strategy.closes.get(ticker)
-            if history is not None and len(history) == SMA_N:
-                sma = sum(history) / SMA_N
-                self.log(f"  {ticker} vs SMA{SMA_N}: {(float(close) / sma - 1):+.2%} (trigger +/-{BAND:.1%})")
+            if history is not None and len(history) == n:
+                sma = sum(history) / n
+                self.log(f"  {ticker} vs SMA{n}: {(float(close) / sma - 1):+.2%} (trigger +/-{band:.1%})")
             else:
-                self.log(f"  {ticker} warming up {len(history) if history is not None else 0}/{SMA_N}")
+                self.log(f"  {ticker} warming up {len(history) if history is not None else 0}/{n}")
             signal = self.strategy.on_close(ticker, float(close), held, ts)
+        if signal is None and held > 0 and getattr(self.strategy, "tax_harvest", False):
+            for t, qty, loss, saved in self.tax.harvest_candidates(date, {ticker: float(close)}):
+                if t == ticker:
+                    signal = Signal(ticker, "SELL", min(qty, held), ts,
+                                    f"tax-loss harvest before 31 March: realise Rs {loss:,.0f} loss, "
+                                    f"saves ~Rs {saved:,.0f} tax")
         if signal is None and held > 0 and self._unwind_due():
             signal = Signal(ticker, "SELL", held, ts, "end-of-run unwind")
+        self._record_equity(date)
         if signal is None:
             return
+        self._d("record_event", "SIGNAL", f"{signal.action} {signal.quantity} {ticker} @ {close}",
+                ticker=ticker, reason=signal.reason, simulated_date=date)
         self.refresh_stage()
+        wait = getattr(self.strategy, "wait_for_news_s", 0.0)
+        if signal.action == "BUY" and wait and getattr(self.strategy, "news", None) is not None:
+            self._pending_buys[ticker] = (signal, float(close), date, received_at)
+            self.log(f"  BUY {signal.quantity} {ticker} waits {wait:.1f}s for today's headlines")
+            return
         self._execute(signal, float(close), date, received_at)
+
+    def _record_equity(self, date: Optional[str]) -> None:
+        if self.dash is None:
+            return
+        invested = sum(q * self.dash.last_close.get(t, 0.0) for t, q in self.portfolio.held.items() if q > 0)
+        cash = self.portfolio.cash
+        self._d("record_equity", date, None if cash is None else cash + invested, cash, invested)
 
     def _unwind_due(self) -> bool:
         """True in the live run's last UNWIND_DAYS days (never in the looping sandbox)."""
@@ -238,16 +459,36 @@ class Bot:
     def _reset_ticker(self, ticker: str) -> None:
         self.log("simulated date went backwards; resetting", ticker)
         self.strategy.reset(ticker)
+        self._d("reset_ticker", ticker)
         self.portfolio.submitted = {k for k in self.portfolio.submitted if k[0] != ticker}
         self.sync_portfolio()
 
     # ---- execution --------------------------------------------------
     def _execute(self, signal: Signal, price: float, date: Optional[str], received_at: float) -> None:
+        entry = {"simulated_date": date, "ticker": signal.ticker, "strategy": self.strategy_name,
+                 "action": signal.action, "quantity": signal.quantity, "price": price,
+                 "reason": signal.reason, "news_score": self.news_context.recent_score(signal.ticker, date)}
+        try:
+            self._send(signal, price, date, received_at, entry)
+        finally:
+            self.journal.record(entry)
+
+    def _send(self, signal: Signal, price: float, date: Optional[str], received_at: float, entry: dict) -> None:
+        if not self.trading_enabled:
+            entry.update(risk_approved=False, risk_reason="trading stopped from dashboard")
+            self.log("TRADING STOPPED - not sending", signal.action, signal.quantity, signal.ticker,
+                     f"({signal.reason})")
+            self._d("record_event", "RISK_BLOCK", f"{signal.action} {signal.quantity} {signal.ticker} not sent",
+                    ticker=signal.ticker, reason="trading stopped from dashboard", simulated_date=date)
+            return
         decision = self.risk.evaluate(
             signal, price, self.clock() - received_at, date, self.universe,
             self.portfolio, self.sim_running)
+        entry.update(risk_approved=decision.approved, risk_reason=decision.reason)
         if not decision.approved:
             self.log("RISK BLOCK", signal.action, signal.quantity, signal.ticker, decision.reason)
+            self._d("record_event", "RISK_BLOCK", f"{signal.action} {signal.quantity} {signal.ticker} blocked",
+                    ticker=signal.ticker, reason=decision.reason, simulated_date=date)
             return
 
         key = (signal.ticker, signal.action, date)
@@ -257,13 +498,33 @@ class Bot:
         self.latencies.append(self.clock() - received_at)
         self.log("ORDER", signal.action, signal.quantity, signal.ticker, result.outcome,
                  result.code or "", f"({signal.reason})")
-        self._reconcile_result(signal, price, key, result)
+        fees = 20.0 + (15.34 if signal.action == "SELL" else 0.0)
+        entry.update(outcome=result.outcome, code=result.code, latency_s=self.latencies[-1],
+                     fees=fees if result.outcome == "FILLED" else None)
+        self._d("record_order", signal.ticker, signal.action, signal.quantity, price, result.outcome,
+                result.code, self.latencies[-1], fees if result.outcome == "FILLED" else None)
+        self._d("record_event", "ORDER", f"{signal.action} {signal.quantity} {signal.ticker}: {result.outcome}",
+                ticker=signal.ticker, reason=result.code or signal.reason, simulated_date=date)
+        self._reconcile_result(signal, price, key, result, entry)
 
-    def _reconcile_result(self, signal: Signal, price: float, key: tuple, result: OrderResult) -> None:
+    def _reconcile_result(self, signal: Signal, price: float, key: tuple, result: OrderResult,
+                          entry: Optional[dict] = None) -> None:
         if result.outcome == "FILLED":
             fill = result.body.get("execution_price")
             fill = fill if isinstance(fill, (int, float)) and not isinstance(fill, bool) else price
             self.portfolio.apply_fill(signal.ticker, signal.action, signal.quantity, fill)
+            if signal.action == "BUY":
+                self.tax.buy(signal.ticker, signal.quantity, fill, key[2])
+            else:
+                realised = self.tax.sell(signal.ticker, signal.quantity, fill, key[2])
+                if entry is not None and realised:
+                    entry.update(realized_gain=round(sum(r.gain for r in realised), 2),
+                                 tax_term="/".join(sorted({r.term for r in realised})))
+            if entry is not None:
+                entry["fill_price"] = fill
+            self._market_moved_at = self.clock()     # re-read the exchange shortly (see _resync_due)
+            self._d("record_fill", signal.ticker, signal.action, signal.quantity, fill,
+                    key[2])
         elif result.outcome == "UNCERTAIN":
             self.portfolio.mark_uncertain(signal.ticker)   # never assume rejected
             self._reconcile_uncertain()
@@ -280,7 +541,8 @@ class Bot:
         if not self.portfolio.uncertain:
             return
         try:
-            self.portfolio.resolve_uncertain(self.api.get_portfolio())
+            if self.portfolio.resolve_uncertain(self.api.get_portfolio()):
+                self._warn_account_reset()
             self.log("reconciled uncertain orders from portfolio")
         except Exception as exc:
             self.log("reconcile failed; ticker stays blocked", exc)
@@ -304,8 +566,55 @@ def _safe_json(raw: bytes):
         return None   # malformed event: handle_message ignores non-dicts
 
 
-def run() -> None:
+def apply_sizing(strategy, env) -> None:
+    """Optional position-size overrides for the SMA strategies, from the environment.
+
+    TRADE_SIZE_INR    rupees per buy order           (sma_pro default 75,000)
+    MAX_POSITION_INR  rupees max held in one stock   (sma_pro default 150,000; equal to
+                      TRADE_SIZE_INR means one buy per stock, no second buy)
+    """
+    if not hasattr(strategy, "notional"):
+        return
+    size, cap = env.get("TRADE_SIZE_INR"), env.get("MAX_POSITION_INR")
+    try:
+        if size:
+            strategy.notional = float(size)
+        if cap:
+            strategy.max_position_value = float(cap)
+    except ValueError:
+        raise ValueError("TRADE_SIZE_INR and MAX_POSITION_INR must be numbers (rupees)") from None
+    if strategy.notional <= 0 or strategy.max_position_value < strategy.notional:
+        raise ValueError("Need TRADE_SIZE_INR > 0 and MAX_POSITION_INR >= TRADE_SIZE_INR")
+
+
+INSTANCE_LOCK_PORT = 47913
+
+
+def acquire_single_instance(port: int = INSTANCE_LOCK_PORT) -> Optional[socket.socket]:
+    """Hold an exclusive localhost port for the life of the bot.
+
+    Two bots on one account split the Kafka partitions between them and trade the same
+    cash, which double-buys and hides orders from the dashboard. Returns None if another
+    instance already holds the lock.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):            # Windows: forbid port sharing
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        sock.bind(("127.0.0.1", port))
+        sock.listen(1)
+    except OSError:
+        sock.close()
+        return None
+    return sock
+
+
+def run(dashboard: bool = False) -> None:
     _load_dotenv()
+    instance_lock = acquire_single_instance(int(os.environ.get("INSTANCE_LOCK_PORT", INSTANCE_LOCK_PORT)))
+    if instance_lock is None:
+        raise SystemExit("Another bot is already running on this computer. Stop it first (Ctrl+C in its "
+                         "window): two bots would split the Kafka stream and trade the same account.")
     try:
         api = SimulationAPIClient()
     except ValueError as exc:
@@ -313,29 +622,113 @@ def run() -> None:
     strategy_name = os.environ.get("STRATEGY", DEFAULT_STRATEGY)
     try:
         strategy = create_strategy(strategy_name)   # validate before touching the network
+        apply_sizing(strategy, os.environ)
     except ValueError as exc:
         raise SystemExit(str(exc))
+    if hasattr(strategy, "notional"):
+        _log(f"Sizing: Rs {strategy.notional:,.0f} per buy, Rs {strategy.max_position_value:,.0f} max per stock")
     from kafka import KafkaConsumer  # imported lazily so tests need no broker
 
     broker = os.environ.get("BROKER", "192.168.65.157:9094")
     username = os.environ.get("HACKATHON_USERNAME", "mn2631")
-    consumer = KafkaConsumer(
-        TOPIC_TICKS, TOPIC_NEWS,
-        bootstrap_servers=[broker],
-        group_id=f"group-{username}",
-        auto_offset_reset="latest",
-        enable_auto_commit=False,
-        value_deserializer=_safe_json,
-    )
-    bot = Bot(api, strategy=strategy, warm_start=os.environ.get("WARM_START", "1") != "0")
+
+    def make_consumer():
+        return KafkaConsumer(
+            TOPIC_TICKS, TOPIC_NEWS,
+            bootstrap_servers=[broker],
+            group_id=f"group-{username}",
+            auto_offset_reset="latest",
+            enable_auto_commit=False,
+            value_deserializer=_safe_json,
+        )
+
+    journal_path = os.path.join("logs", f"decisions_{time.strftime('%Y%m%d_%H%M%S')}.jsonl")
+    dash = server = None
+    trading = True
+    if dashboard:
+        from src.dashboard.server import DashboardServer
+        from src.dashboard.state import DashboardState
+        dash = DashboardState(strategy_name)
+        # With the dashboard on, the bot boots STOPPED: press Start (or set START_TRADING=1).
+        trading = os.environ.get("START_TRADING", "0") == "1"
+    bot = Bot(api, strategy=strategy, warm_start=os.environ.get("WARM_START", "1") != "0",
+              dash=dash, trading_enabled=trading, strategy_name=strategy_name,
+              journal=DecisionJournal(journal_path))
+    if dash is not None:
+        static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+        port = int(os.environ.get("DASHBOARD_PORT", "8080"))
+        try:
+            server = DashboardServer(bot, dash, static_dir, port).start()
+        except OSError:
+            raise SystemExit(f"Dashboard port {port} is already in use. Close the other program or set DASHBOARD_PORT.")
+        _log(f"Dashboard: {server.url}  (trading is {'ON' if trading else 'STOPPED - press Start in the dashboard'})")
     bot.startup()
-    _log(f"Strategy: {strategy_name}")
-    _log("Connected to Kafka. Listening...")
+    _log(f"Strategy: {strategy_name}  |  decision journal: {journal_path}")
+    start_resync_timer(bot)
     try:
-        for message in consumer:
-            bot.handle_message(message.topic, message.value)
+        consume_forever(bot, make_consumer, dash)
+    except KeyboardInterrupt:
+        pass
     finally:
         _log("Decision latency:", bot.latency_summary())
+        _log("Tax estimate:", {k: v for k, v in bot.tax.summary().items() if k != "years"})
+        if server is not None:
+            server.stop()
+
+
+TIMER_S = 0.1                 # timer tick: sends news-gated BUYs ~0.5-0.6 s after the prices
+
+
+def start_resync_timer(bot: "Bot", interval: float = TIMER_S) -> threading.Thread:
+    """Send news-gated BUYs on time and re-read the exchange when due, even while no Kafka
+    message arrives."""
+    def loop():
+        while True:
+            time.sleep(interval)
+            try:
+                bot.on_timer()
+            except Exception as exc:                  # never let the timer die silently
+                bot.log("timer error", exc)
+
+    thread = threading.Thread(target=loop, name="portfolio-resync", daemon=True)
+    thread.start()
+    return thread
+
+
+def consume_forever(bot: "Bot", make_consumer: Callable, dash=None, sleep: Callable = time.sleep,
+                    max_backoff: float = 15.0, stop: Callable[[], bool] = lambda: False) -> None:
+    """Feed Kafka messages to the bot; on any broker/network error, reconnect with backoff.
+
+    A dropped Wi-Fi link or broker restart must not end the run: the bot keeps its state
+    (positions, tax lots, journal) and resumes as soon as Kafka is reachable again.
+    """
+    backoff = 1.0
+    while not stop():
+        consumer = None
+        try:
+            consumer = make_consumer()
+            if dash is not None:
+                dash.kafka_connected = True
+            _log("Connected to Kafka. Listening...")
+            backoff = 1.0
+            for message in consumer:
+                bot.handle_message(message.topic, message.value)
+                if stop():
+                    return
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:                      # broker down, network lost, rebalance failure...
+            if dash is not None:
+                dash.kafka_connected = False
+            bot.log(f"Kafka connection problem: {exc!r}; reconnecting in {backoff:.0f}s")
+            sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
+        finally:
+            if consumer is not None:
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
 
 
 def main() -> None:
@@ -343,7 +736,7 @@ def main() -> None:
         print("Dry start. Run `python -m src.app --live` to connect to Kafka and the simulator "
               "(requires TEAM_JWT_TOKEN or BOT_ACCESS_TOKEN).")
         return
-    run()
+    run(dashboard="--dashboard" in sys.argv)
 
 
 if __name__ == "__main__":

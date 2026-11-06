@@ -3,9 +3,6 @@ POS_WORDS = ("beat", "record", "growth", "surge", "upgrade", "profit", "wins", "
 NEG_WORDS = ("miss", "loss", "plunge", "downgrade", "probe", "lawsuit", "recall", "cuts", "weak", "fraud", "bankruptcy")
 
 
-EVENT_NEWS = "news_flash"
-
-
 def keyword_counts(event_data: dict) -> tuple[int, int]:
     text = f"{event_data.get('headline') or ''} {event_data.get('description') or ''}".lower()
     return sum(w in text for w in POS_WORDS), sum(w in text for w in NEG_WORDS)

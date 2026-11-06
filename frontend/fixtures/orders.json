@@ -1,0 +1,47 @@
+
+{
+  "orders": [
+    {
+      "order_id": "ORD-1042",
+      "timestamp": "2026-10-29T14:29:50Z",
+      "ticker": "ZEN",
+      "side": "BUY",
+      "quantity": 75,
+      "price": 95.20,
+      "status": "FILLED",
+      "strategy": "SMA_CROSSOVER"
+    },
+    {
+      "order_id": "ORD-1041",
+      "timestamp": "2026-10-29T14:29:45Z",
+      "ticker": "HAVN",
+      "side": "SELL",
+      "quantity": 50,
+      "price": 252.75,
+      "status": "FILLED",
+      "strategy": "MEAN_REVERSION"
+    },
+    {
+      "order_id": "ORD-1040",
+      "timestamp": "2026-10-29T14:29:40Z",
+      "ticker": "NOVA",
+      "side": "BUY",
+      "quantity": 100,
+      "price": 176.40,
+      "status": "REJECTED",
+      "strategy": "SMA_CROSSOVER",
+      "reject_reason": "MAX_POSITION_LIMIT"
+    },
+    {
+      "order_id": "ORD-1039",
+      "timestamp": "2026-10-29T14:29:35Z",
+      "ticker": "HAVN",
+      "side": "BUY",
+      "quantity": 200,
+      "price": 252.75,
+      "status": "PENDING",
+      "strategy": "MEAN_REVERSION"
+    }
+  ],
+  "updated_at": "2026-10-29T14:30:00Z"
+}
